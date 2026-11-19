@@ -1,0 +1,3 @@
+# Normalize text in the repo; check shell scripts out with LF so bash never sees CRLF.
+* text=auto
+*.sh text eol=lf
