@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>开单动线原型 v1 · jxc #15</title>
+<!--
+  PROTOTYPE — 开单动线 v1（2026-11-24），票据 panx635/jxc#15
+  问题：30 单/天、一单 2-3 分钟（含打印）、1-3 人的五金水暖店，销售单开单页该长什么样？
+  四个结构变体：?variant=A|B|C|D。这是抛掷物：只验证结构，不验证视觉；数据全假，内存态，刷新即清。
+-->
+<style>
+:root{
+  --ink:#171717; --muted:#6d6d68; --faint:#9a9a94;
+  --line:#c7c7c0; --line2:#e4e4de; --bg:#ecece8; --paper:#fff;
+  --accent:#1f4fd8; --accent-weak:#e9eefc;
+  --warn:#9a5700; --warn-bg:#fff3df; --ok:#177a35; --ok-bg:#e8f4ea; --bad:#a32424;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,"Courier New",monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;background:#fff;border:1px solid var(--line);border-radius:2px;padding:5px 10px}
+button:hover{background:#f6f6f2}
+button:disabled{opacity:.45;cursor:not-allowed}
+input,select,textarea{font:inherit;color:inherit;background:#fff;border:1px solid var(--line);border-radius:2px;padding:4px 6px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent-weak);border-color:var(--accent)}
+kbd{font:10px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;padding:0 4px;background:#fbfbf8;color:var(--muted)}
+h1,h2,h3,h4{margin:0}
+.sub{color:var(--muted);font-size:11.5px}
+.mono{font-family:var(--mono)}
+.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.primary:hover{background:#1a45bd}
+.ghost{background:transparent}
+.danger{color:var(--bad)}
+.hidden{display:none!important}
+
+/* ---------- prototype console ---------- */
+#console{height:48px;display:flex;align-items:center;gap:14px;padding:0 14px;background:#141414;color:#eee;position:sticky;top:0;z-index:80;font-size:12px}
+#console .pbadge{background:#f2c94c;color:#111;font-weight:800;font-size:9.5px;letter-spacing:.1em;padding:3px 6px;border-radius:2px}
+#console .vname{font-weight:600;min-width:130px}
+#console .metric{display:flex;align-items:baseline;gap:5px;color:#ddd}
+#console .metric b{font:600 14px/1 var(--mono);color:#fff}
+#console .metric small{font-size:10px;color:#8f8f8f}
+#console .spacer{flex:1}
+#console button{background:#242424;border-color:#3a3a3a;color:#ddd;font-size:11px;padding:4px 8px}
+#console button:hover{background:#313131}
+#console .ticketlink{color:#9fb4ef;text-decoration:none;font-size:11px}
+
+/* ---------- switcher ---------- */
+#switcher{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:90;display:flex;align-items:center;gap:2px;background:#141414;color:#fff;border-radius:999px;padding:4px;box-shadow:0 6px 22px rgba(0,0,0,.28)}
+#switcher button{width:32px;height:30px;border:0;background:transparent;color:#fff;font-size:15px;border-radius:999px;padding:0}
+#switcher button:hover{background:#2e2e2e}
+#switcher .vlabel{min-width:170px;text-align:center;font-size:11.5px;letter-spacing:.02em}
+#switcher .vlabel b{color:#f2c94c;margin-right:4px}
+#switcher .khint{font-size:9.5px;color:#8d8d8d;padding:0 8px 0 4px;border-left:1px solid #333}
+
+/* ---------- app frame ---------- */
+#app{height:calc(100vh - 48px);padding-bottom:56px;overflow:hidden}
+
+/* ---------- dropdowns ---------- */
+.dropdown{position:absolute;top:calc(100% + 3px);left:0;z-index:60;background:var(--paper);border:1px solid var(--ink);box-shadow:0 10px 30px rgba(0,0,0,.16);min-width:100%}
+.dd-row{display:flex;align-items:center;gap:8px;padding:6px 9px;border-bottom:1px solid var(--line2);cursor:pointer;font-size:12px}
+.dd-row:last-child{border-bottom:0}
+.dd-row:hover,.dd-row.active{background:var(--accent-weak)}
+.dd-row .meta{margin-left:auto;color:var(--muted);font-size:11px;text-align:right}
+.dd-foot{padding:5px 9px;border-top:1px solid var(--line);background:#f7f7f2;color:var(--muted);font-size:10.5px}
+.prodrow{display:flex;align-items:flex-start;gap:9px;padding:7px 9px;border-bottom:1px solid var(--line2);cursor:pointer}
+.prodrow:hover,.prodrow.active{background:var(--accent-weak)}
+.prodrow .rk{width:16px;color:var(--faint);font:10px var(--mono);padding-top:2px}
+.prodrow .pmain{flex:1;min-width:0}
+.prodrow .pname{font-weight:600}
+.prodrow .pspec{color:#333;margin-left:5px}
+.prodrow .psub{color:var(--muted);font-size:10.5px;margin-top:1px}
+.prodrow .pprice{text-align:right;font:600 12px var(--mono);white-space:nowrap}
+.prodrow .pprice small{display:block;font-weight:400;color:var(--muted);font-size:10px}
+.match{display:inline-block;font-size:9px;border:1px solid var(--line);background:#fbfbf8;color:var(--muted);padding:0 3px;margin-left:5px;vertical-align:1px}
+
+/* ---------- A: one-screen ------------------------------ */
+.a-app{height:100%;display:flex;flex-direction:column;min-height:0}
+.a-head{background:var(--paper);border-bottom:1px solid var(--line);padding:8px 14px 7px}
+.a-head-top{display:flex;align-items:center;gap:12px}
+.a-logo{font:700 17px/1 var(--mono);letter-spacing:-.03em}
+.a-logo span{font:400 10px/1 "Microsoft YaHei";color:var(--muted);margin-left:5px;letter-spacing:0}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:2px;overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--line);border-radius:0;padding:4px 10px;background:#fff;font-size:12px}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--ink);color:#fff}
+.a-docno{color:var(--muted);font-size:11.5px}
+.a-mini{font:11px var(--mono);color:var(--muted)}
+.a-head-meta{display:flex;align-items:center;gap:9px;margin-top:7px;flex-wrap:wrap}
+.a-head-meta label{font-size:11px;color:var(--muted)}
+.combo{position:relative;width:250px}
+.combo input{width:100%;padding-right:22px;font-weight:600}
+.combo .caret{position:absolute;right:7px;top:5px;color:var(--muted);pointer-events:none;font-size:11px}
+.recv{font:11px var(--mono);color:var(--muted)}
+.autosave{margin-left:auto;font-size:10.5px;color:var(--faint)}
+.a-sheet{flex:1;min-height:0;display:flex;flex-direction:column;margin:9px 14px 0;background:var(--paper);border:1px solid var(--line)}
+.a-tools{display:flex;align-items:center;gap:8px;padding:7px 8px;border-bottom:1px solid var(--line);background:#fafaf6}
+.a-search{position:relative;width:520px;max-width:52vw}
+.a-search input{width:100%;padding:6px 9px;border-color:var(--ink)}
+.a-search .k{position:absolute;right:7px;top:6px}
+.a-tools .hint{color:var(--faint);font-size:10.5px;margin-left:auto;white-space:nowrap}
+.cols{position:relative;font-size:11px}
+.cols summary{list-style:none;cursor:pointer;border:1px solid var(--line);padding:5px 8px;background:#fff;border-radius:2px;user-select:none}
+.cols summary::-webkit-details-marker{display:none}
+.cols[open] summary{border-color:var(--ink);background:#fafaf6}
+.colsbody{position:absolute;top:calc(100% + 3px);right:0;z-index:30;background:#fff;border:1px solid var(--ink);padding:8px 9px;width:148px;display:flex;flex-direction:column;gap:5px;box-shadow:0 8px 20px rgba(0,0,0,.12)}
+.colsbody label{display:flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.a-grid{flex:1;min-height:0;overflow:auto}
+table.lines{width:100%;border-collapse:collapse;font-size:12.5px}
+table.lines th{position:sticky;top:0;z-index:2;background:#f4f4ee;text-align:left;font-weight:600;font-size:11px;color:#4b4b46;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.lines td{padding:4px 8px;border-bottom:1px solid var(--line2);vertical-align:middle}
+table.lines tbody tr:hover{background:#fbfbf7}
+table.lines .idx{width:28px;color:var(--faint);font:10px var(--mono)}
+table.lines .pn{font-weight:600}
+table.lines .pspec{color:#333;font-size:12px}
+table.lines .num{text-align:right;font-family:var(--mono)}
+table.lines input.qty{width:58px;text-align:right;font-family:var(--mono);padding:3px 4px}
+table.lines input.price{width:76px;text-align:right;font-family:var(--mono);padding:3px 4px}
+table.lines .amt{text-align:right;font-family:var(--mono);font-weight:600;white-space:nowrap}
+table.lines .unit{width:54px}
+table.lines .stock{width:64px;text-align:right;font-family:var(--mono);color:var(--muted)}
+table.lines .lastp{width:78px;text-align:right;font-family:var(--mono);color:var(--muted)}
+.tagline{display:inline-block;font-size:9.5px;padding:0 4px;border:1px solid var(--line);background:#fafaf6;color:var(--muted);margin-left:4px;vertical-align:1px;white-space:nowrap}
+.tagline.warn{border-color:#e7c58e;background:var(--warn-bg);color:var(--warn)}
+.tagline.ok{border-color:#b9d9c0;background:var(--ok-bg);color:var(--ok)}
+.rowdel{border:0;background:transparent;color:var(--faint);padding:2px 5px;font-size:13px}
+.rowdel:hover{color:var(--bad);background:transparent}
+.empty{height:100%;min-height:180px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;color:var(--faint);font-size:12px}
+.empty b{color:#555;font-weight:600}
+.a-foot{border-top:2px solid var(--ink);background:var(--paper);display:grid;grid-template-columns:230px 1fr 320px;gap:18px;padding:9px 14px 10px;align-items:start}
+.a-foot .sumline{font-size:10.5px;color:var(--muted)}
+.a-foot .big{font:700 26px/1.1 var(--mono);letter-spacing:-.02em}
+.a-foot .bigsub{font-size:10.5px;color:var(--muted);margin-top:2px}
+.a-mid{display:flex;flex-direction:column;gap:5px;font-size:11.5px}
+.a-mid .l{display:flex;align-items:center;gap:7px}
+.a-mid .l .lab{width:58px;color:var(--muted);text-align:right;flex:none}
+.a-mid input.disc{width:74px;text-align:right;font-family:var(--mono);padding:3px 4px}
+.a-mid input.pay{width:92px;text-align:right;font-family:var(--mono);padding:3px 4px}
+.a-mid select{width:76px;padding:3px 4px}
+.a-mid .payhint{color:var(--faint);font-size:10.5px}
+.a-mid .due{font-family:var(--mono);font-weight:600}
+.a-right{display:flex;flex-direction:column;gap:6px;justify-content:flex-end;height:100%}
+.a-right .primary{width:100%;padding:10px 12px;font-size:14px;display:flex;align-items:center;justify-content:center;gap:8px}
+.a-right .row2{display:flex;gap:6px}
+.a-right .row2 button{flex:1}
+.a-banner{border:1px solid #b9d9c0;background:var(--ok-bg);color:var(--ok);padding:6px 9px;font-size:11.5px;display:flex;align-items:center;gap:10px;margin:7px 8px 0}
+.a-banner b{font-family:var(--mono)}
+
+/* ---------- B: two-step ------------------------------ */
+.b-app{height:100%;display:flex;flex-direction:column;min-height:0;background:var(--paper)}
+.b-steps{display:flex;align-items:center;gap:0;padding:0 16px;border-bottom:1px solid var(--line);background:#fafaf6;height:50px;flex:none}
+.b-step{display:flex;align-items:center;gap:7px;padding:0 18px;height:100%;color:var(--muted);font-size:12px;border-right:1px solid var(--line2)}
+.b-step i{font:700 10px var(--mono);font-style:normal;width:18px;height:18px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;background:#fff}
+.b-step.on{color:var(--ink);font-weight:600;background:#fff}
+.b-step.on i{background:var(--ink);color:#fff;border-color:var(--ink)}
+.b-step.done{color:var(--ok)}
+.b-step.done i{background:var(--ok-bg);border-color:#b9d9c0;color:var(--ok)}
+.b-steps .spacer{flex:1}
+.b-body{flex:1;min-height:0;display:flex}
+.b-step-pane{flex:1;display:flex;min-height:0}
+.b-custwrap{flex:1;overflow:auto;padding:26px 40px;max-width:1040px;margin:0 auto}
+.b-h{font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:4px}
+.b-sub{color:var(--muted);font-size:12px;margin-bottom:16px}
+.b-search{position:relative;width:560px;max-width:100%}
+.b-search input{width:100%;padding:9px 11px;font-size:14px;border-color:var(--ink)}
+.b-recent{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:16px 0 20px}
+.b-ccard{border:1px solid var(--line);padding:10px;text-align:left;background:#fff;border-radius:2px}
+.b-ccard:hover{border-color:var(--ink);background:#fafaf6}
+.b-ccard b{display:block;font-size:13px}
+.b-ccard span{font-size:10.5px;color:var(--muted)}
+.b-ccard .r{font-family:var(--mono);font-size:11px;margin-top:4px;color:#444}
+.b-ctable{width:100%;border-collapse:collapse;font-size:12.5px}
+.b-ctable th{text-align:left;font-size:10.5px;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);background:#fafaf6}
+.b-ctable td{padding:7px 8px;border-bottom:1px solid var(--line2)}
+.b-ctable tr{cursor:pointer}
+.b-ctable tr:hover td{background:var(--accent-weak)}
+.b-left{flex:1.25;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--line)}
+.b-right{width:460px;flex:none;display:flex;flex-direction:column;min-height:0;background:#fafaf6}
+.panel-h{display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:1px solid var(--line);background:#fafaf6;font-size:12px;flex:none}
+.panel-h b{font-size:12.5px}
+.panel-h .spacer{flex:1}
+.panel-h .who{color:var(--muted);font-size:11px}
+.b-prodwrap{flex:1;display:flex;flex-direction:column;min-height:0}
+.b-prodsearch{padding:8px 12px;border-bottom:1px solid var(--line2)}
+.b-prodsearch input{width:100%;padding:7px 9px;border-color:var(--ink)}
+.b-results{flex:1;overflow:auto}
+.b-prow{display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line2);cursor:pointer}
+.b-prow:hover{background:#fbfbf7}
+.b-prow .pmain{flex:1;min-width:0}
+.b-prow .pn{font-weight:600}
+.b-prow .spec{color:#333;margin-left:6px}
+.b-prow .meta{color:var(--muted);font-size:10.5px;margin-top:2px}
+.b-prow .pp{font:600 12px var(--mono);text-align:right;white-space:nowrap}
+.b-prow .pp small{display:block;font-weight:400;color:var(--muted);font-size:10px}
+.b-prow .add{border:1px solid var(--accent);color:var(--accent);background:#fff;padding:3px 9px;font-size:11px;margin-top:2px}
+.b-cart{flex:1;overflow:auto}
+.b-cart table{width:100%;border-collapse:collapse;font-size:12px}
+.b-cart th{text-align:left;font-size:10px;color:var(--muted);font-weight:600;padding:5px 6px;border-bottom:1px solid var(--line2)}
+.b-cart td{padding:5px 6px;border-bottom:1px solid var(--line2);vertical-align:middle}
+.b-cart .nm{font-weight:600;font-size:11.5px}
+.b-cart .sp{color:var(--muted);font-size:10px}
+.b-cart input.qty{width:46px;text-align:right;font-family:var(--mono);padding:2px 3px}
+.b-cart input.price{width:62px;text-align:right;font-family:var(--mono);padding:2px 3px}
+.b-cart .amt{font-family:var(--mono);text-align:right;font-weight:600;white-space:nowrap}
+.b-totals{padding:9px 12px;border-top:1px solid var(--line);background:#fff;flex:none}
+.b-totals .row{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px}
+.b-totals .row.big{font-size:17px;font-weight:700;font-family:var(--mono);margin-top:5px}
+.b-totals .muted{color:var(--muted);font-size:10.5px}
+.b-actions{display:flex;gap:7px;padding:9px 12px;border-top:1px solid var(--line);background:#fff;flex:none}
+.b-actions button{flex:1;padding:9px}
+.b-empty{padding:26px 12px;color:var(--faint);font-size:12px;text-align:center}
+.b-paywrap{flex:1;overflow:auto;padding:24px 32px;max-width:900px;margin:0 auto;width:100%}
+.b-paycard{border:1px solid var(--line);background:#fff;padding:16px}
+.b-paygrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.b-field label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
+.b-field input,.b-field select{width:100%;padding:7px 8px}
+.b-summary{margin-top:14px;border-top:1px solid var(--line2);padding-top:10px;font-size:12px}
+.b-summary .r{display:flex;justify-content:space-between;padding:3px 0}
+
+/* ---------- C: wizard ------------------------------ */
+.c-app{height:100%;overflow:auto;padding:22px 20px 40px;background:var(--bg)}
+.c-wrap{max-width:940px;margin:0 auto}
+.c-steps{display:flex;gap:0;margin-bottom:14px;background:#fff;border:1px solid var(--line)}
+.c-step{flex:1;display:flex;align-items:center;gap:7px;padding:9px 12px;border-right:1px solid var(--line2);color:var(--muted);font-size:11.5px}
+.c-step:last-child{border-right:0}
+.c-step i{font:700 10px var(--mono);font-style:normal;width:18px;height:18px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;background:#fafaf6}
+.c-step.on{color:var(--ink);font-weight:600;background:#f4f6fc}
+.c-step.on i{background:var(--accent);border-color:var(--accent);color:#fff}
+.c-step.done i{background:var(--ok-bg);border-color:#b9d9c0;color:var(--ok)}
+.c-card{background:#fff;border:1px solid var(--line);padding:20px 22px;min-height:420px}
+.c-card h2{font-size:18px;letter-spacing:-.01em;margin-bottom:2px}
+.c-card .c-lead{color:var(--muted);font-size:12px;margin-bottom:16px}
+.c-nav{display:flex;justify-content:space-between;gap:8px;margin-top:12px}
+.c-nav button{padding:8px 16px}
+.c-nav .primary{min-width:140px}
+.c-search{position:relative;width:100%}
+.c-search input{width:100%;padding:9px 10px;border-color:var(--ink)}
+.c-results{margin-top:8px;border:1px solid var(--line);max-height:250px;overflow:auto;background:#fdfdfa}
+.c-prow{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-bottom:1px solid var(--line2);cursor:pointer}
+.c-prow:hover{background:var(--accent-weak)}
+.c-prow .pmain{flex:1}
+.c-prow .pn{font-weight:600}
+.c-prow .meta{font-size:10.5px;color:var(--muted)}
+.c-prow .pp{font-family:var(--mono);font-size:11.5px;text-align:right}
+.c-cart{margin-top:12px;border:1px solid var(--line)}
+.c-cart table{width:100%;border-collapse:collapse;font-size:12px}
+.c-cart th{text-align:left;font-size:10px;color:var(--muted);padding:5px 7px;border-bottom:1px solid var(--line);background:#fafaf6}
+.c-cart td{padding:5px 7px;border-bottom:1px solid var(--line2)}
+.c-cart .nm{font-weight:600}
+.c-cart .sp{font-size:10px;color:var(--muted)}
+.c-cart input.qty{width:52px;text-align:right;font-family:var(--mono);padding:2px 4px}
+.c-cart input.price{width:66px;text-align:right;font-family:var(--mono);padding:2px 4px}
+.c-cart .amt{text-align:right;font-family:var(--mono);font-weight:600}
+.c-tot{margin-top:10px;display:flex;justify-content:flex-end;gap:28px;align-items:baseline}
+.c-tot .lbl{font-size:11px;color:var(--muted)}
+.c-tot .v{font:700 19px var(--mono)}
+.c-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.c-fields label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
+.c-fields input,.c-fields select{width:100%;padding:8px 9px}
+.c-summary{border:1px solid var(--line);margin-top:12px}
+.c-summary .r{display:flex;justify-content:space-between;padding:7px 10px;border-bottom:1px solid var(--line2);font-size:12px}
+.c-summary .r:last-child{border-bottom:0}
+.c-summary .r.big{font-size:15px;font-weight:700;font-family:var(--mono)}
+.c-recent{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.c-ccard{border:1px solid var(--line);padding:9px 10px;text-align:left;background:#fff}
+.c-ccard:hover{border-color:var(--ink)}
+.c-ccard b{display:block;font-size:12.5px}
+.c-ccard span{font-size:10px;color:var(--muted);font-family:var(--mono)}
+
+/* ---------- D: phone ------------------------------ */
+.d-stage{height:100%;display:flex;align-items:center;justify-content:center;background:#d9d9d3;padding:10px}
+.d-phone{width:392px;height:min(742px,calc(100vh - 84px));background:#fff;border:7px solid #1b1b1b;border-radius:30px;overflow:hidden;display:flex;flex-direction:column;position:relative;box-shadow:0 24px 60px rgba(0,0,0,.22)}
+.d-status{height:22px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font:10px var(--mono);color:#555;flex:none}
+.d-head{display:flex;align-items:center;gap:8px;padding:4px 12px 8px;border-bottom:1px solid var(--line2);flex:none}
+.d-head b{font-size:15px}
+.d-head .spacer{flex:1}
+.d-head button{padding:4px 7px;font-size:11px}
+.d-cust{display:flex;align-items:center;gap:7px;padding:9px 12px;border-bottom:1px solid var(--line2);font-size:13px;font-weight:600;flex:none;cursor:pointer}
+.d-cust .r{margin-left:auto;font:10px var(--mono);color:var(--muted);font-weight:400}
+.d-search{padding:7px 10px;border-bottom:1px solid var(--line2);flex:none}
+.d-search input{width:100%;padding:7px 9px;font-size:13px;border-color:var(--ink)}
+.d-results{max-height:190px;overflow:auto;border-bottom:1px solid var(--line2);flex:none}
+.d-rrow{display:flex;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line2);font-size:11.5px;cursor:pointer}
+.d-rrow:hover{background:var(--accent-weak)}
+.d-rrow .m{flex:1;min-width:0}
+.d-rrow .n{font-weight:600}
+.d-rrow .s{font-size:10px;color:var(--muted)}
+.d-rrow .p{font:600 11px var(--mono)}
+.d-lines{flex:1;overflow:auto;padding:2px 0}
+.d-line{display:grid;grid-template-columns:1fr 44px 54px 56px;gap:6px;padding:7px 10px;border-bottom:1px solid var(--line2);align-items:center}
+.d-line .n{font-weight:600;font-size:12px}
+.d-line .s{font-size:10px;color:var(--muted)}
+.d-line input{width:100%;text-align:right;padding:4px 5px;font-family:var(--mono);font-size:12px}
+.d-line .amt{font:600 12px var(--mono);text-align:right}
+.d-empty{padding:30px 18px;text-align:center;color:var(--faint);font-size:12px;line-height:1.7}
+.d-sticky{flex:none;border-top:2px solid var(--ink);padding:9px 12px;display:flex;align-items:center;gap:10px;background:#fff}
+.d-sticky .t{font-size:10px;color:var(--muted)}
+.d-sticky .v{font:700 19px var(--mono)}
+.d-sticky button{margin-left:auto;padding:9px 14px;font-size:13px}
+.d-sheet{position:absolute;inset:0;background:rgba(0,0,0,.35);display:flex;flex-direction:column;justify-content:flex-end;z-index:5}
+.d-sheet .card{background:#fff;border-top:2px solid var(--ink);padding:12px;max-height:88%;overflow:auto}
+.d-sheet h3{font-size:15px;margin-bottom:8px}
+.d-sheet .close{float:right;border:0;background:transparent;font-size:16px;padding:0}
+.d-crow{display:flex;justify-content:space-between;padding:9px 6px;border-bottom:1px solid var(--line2);font-size:12.5px;cursor:pointer}
+.d-crow:hover{background:var(--accent-weak)}
+.d-field{margin-top:9px}
+.d-field label{display:block;font-size:10.5px;color:var(--muted);margin-bottom:3px}
+.d-field input,.d-field select{width:100%;padding:8px}
+.d-chips{display:flex;gap:6px;margin:6px 0}
+.d-chips button{flex:1;padding:7px 4px;font-size:11.5px}
+.d-chips button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.d-bigbtn{width:100%;padding:11px;margin-top:10px;font-size:14px}
+
+/* ---------- drawer / modal / toast ---------- */
+#drawer{position:fixed;top:48px;right:0;bottom:0;width:380px;background:#fff;border-left:1px solid var(--ink);z-index:70;transform:translateX(101%);transition:transform .18s ease;display:flex;flex-direction:column;box-shadow:-12px 0 30px rgba(0,0,0,.08)}
+#drawer.open{transform:none}
+.drawer-head{display:flex;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid var(--line);background:#141414;color:#fff;flex:none}
+.drawer-head b{font-size:12.5px}
+.drawer-head button{margin-left:auto;background:#242424;border-color:#3a3a3a;color:#ddd;padding:2px 7px}
+.drawer-body{flex:1;overflow:auto;padding:13px 14px 60px;font-size:12px}
+.drawer-body h4{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 6px;border-top:1px solid var(--line2);padding-top:12px}
+.drawer-body h4:first-child{margin-top:0;border-top:0;padding-top:0}
+.statline{display:flex;gap:16px;background:#fafaf6;border:1px solid var(--line2);padding:8px 10px;font-size:11px;margin-bottom:10px}
+.statline b{font-family:var(--mono);font-size:13px}
+ol.tasklist{margin:0;padding-left:20px}
+ol.tasklist li{margin-bottom:6px;line-height:1.4}
+ol.tasklist li.done{color:var(--ok)}
+ol.tasklist li.done::marker{color:var(--ok)}
+ol.tasklist li.done .t{text-decoration:line-through;text-decoration-color:#a9c9b0}
+.drawer-body p{margin:0 0 7px;color:#333;line-height:1.55}
+.drawer-body ul{margin:0 0 8px;padding-left:18px}
+.drawer-body li{margin-bottom:4px;line-height:1.5}
+.drawer-body table{width:100%;border-collapse:collapse;font-size:10.5px;margin-top:5px}
+.drawer-body th,.drawer-body td{border-bottom:1px solid var(--line2);padding:4px 3px;text-align:left;vertical-align:top}
+.drawer-body th{color:var(--muted);font-weight:600}
+.drawer-body .callout{border-left:3px solid var(--accent);background:#f4f6fc;padding:7px 9px;margin:8px 0;font-size:11.5px;line-height:1.55}
+#modal{position:fixed;inset:0;z-index:100;background:rgba(20,20,20,.45);display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-card{background:#fff;border:1px solid var(--ink);box-shadow:0 18px 50px rgba(0,0,0,.3);max-width:560px;width:100%;max-height:90vh;overflow:auto}
+.modal-card h3{font-size:15px;padding:11px 14px;border-bottom:1px solid var(--line);background:#fafaf6}
+.modal-card .mbody{padding:14px;font-size:12.5px;line-height:1.6}
+.modal-card .mbody p{margin:0 0 8px}
+.modal-card .mfoot{display:flex;justify-content:flex-end;gap:8px;padding:10px 14px;border-top:1px solid var(--line);background:#fafaf6}
+.modal-card .mfoot button{padding:7px 14px}
+.pricebox{display:flex;gap:12px;align-items:baseline;border:1px solid var(--line);padding:9px 11px;background:#fafaf6;margin:8px 0;font-family:var(--mono)}
+.pricebox .old{color:var(--muted);text-decoration:line-through}
+.pricebox .new{font-size:18px;font-weight:700}
+.ticket{font:11px/1.55 var(--mono);background:#fff;border:1px dashed var(--line);padding:14px 16px;margin:10px 0;white-space:pre-wrap}
+.print-title{text-align:center;font-weight:700;letter-spacing:.35em;padding-bottom:4px}
+.ptable{width:100%;border-collapse:collapse;font-size:10.5px;margin:4px 0}
+.ptable th{border-bottom:1px solid #999;text-align:left;padding:2px 3px;font-weight:600}
+.ptable td{border-bottom:1px dotted #ddd;padding:2px 3px}
+.ptable .n{text-align:right}
+.pmeta{display:flex;justify-content:space-between;font-size:10.5px;margin:3px 0}
+.print-foot{display:flex;justify-content:space-between;font-size:9.5px;color:#555;border-top:1px solid #999;padding-top:4px;margin-top:4px}
+#toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%) translateY(10px);background:#141414;color:#fff;padding:8px 14px;font-size:12px;border-radius:3px;opacity:0;pointer-events:none;transition:all .18s ease;z-index:120;max-width:70vw}
+#toast.show{opacity:1;transform:translateX(-50%)}
+#toast.ok{background:#177a35}
+#toast.warn{background:#8a5200}
+.fatal{margin:20px;padding:16px;border:2px solid var(--bad);background:#fff;color:var(--bad);font:12px var(--mono);white-space:pre-wrap}
+@media (max-width:1100px){.a-search{width:360px}.a-tools .hint{display:none}.b-right{width:390px}}
+</style>
+</head>
+<body data-variant="A">
+<div id="console">
+  <span class="pbadge">PROTOTYPE</span>
+  <span class="vname" id="consoleV">A · 一屏键盘流</span>
+  <span class="metric"><b id="timerTop">00:00</b><small>耗时</small></span>
+  <span class="metric"><b id="keysTop">0</b><small>击键</small></span>
+  <span class="metric"><b id="taskCount">0/8</b><small>任务</small></span>
+  <span class="spacer"></span>
+  <a class="ticketlink" href="https://github.com/panx635/jxc/issues/15" target="_blank">panx635/jxc#15 ↗</a>
+  <button onclick="toggleDrawer()">任务与判断依据</button>
+  <button onclick="resetAll()">重置演示</button>
+</div>
+<div id="app"></div>
+<div id="drawer"><div class="drawer-head"><b>演示任务 · 判断依据</b><button onclick="toggleDrawer()">关闭 ✕</button></div><div class="drawer-body" id="drawerBody"></div></div>
+<div id="switcher">
+  <button onclick="cycleVariant(-1)" title="上一个变体（←）">◀</button>
+  <span class="vlabel" id="swLabel"><b>A</b>一屏键盘流</span>
+  <button onclick="cycleVariant(1)" title="下一个变体（→）">▶</button>
+  <span class="khint">← → 切换</span>
+</div>
+<div id="modal" class="hidden"></div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+window.onerror = function(msg, src, line, col){
+  var el = document.getElementById('app');
+  if(el) el.innerHTML = '<pre class="fatal">原型脚本错误：' + esc(msg) + ' @' + line + ':' + col + '</pre>';
+  return false;
+};
+
+/* ============================== 假数据 ============================== */
+const PRODUCTS = [
+  {id:'p_ppr20_28', code:'PPR-20-28', name:'PPR水管', spec:'DN20 2.8壁厚', unit:'根', stock:320, cost:12.4, price:18.0, aliases:'20管 热水管 2.8', cat:'管材'},
+  {id:'p_ppr20_34', code:'PPR-20-34', name:'PPR水管', spec:'DN20 3.4壁厚', unit:'根', stock:180, cost:16.8, price:24.0, aliases:'20管 热水管 3.4', cat:'管材'},
+  {id:'p_ppr25_35', code:'PPR-25-35', name:'PPR水管', spec:'DN25 3.5壁厚', unit:'根', stock:96, cost:22.0, price:31.0, aliases:'25管 热水管', cat:'管材'},
+  {id:'p_elbow20', code:'PPR-20-90', name:'PPR弯头', spec:'DN20 内丝 90°', unit:'个', stock:450, cost:2.2, price:4.0, aliases:'弯头 20 内牙', cat:'管件'},
+  {id:'p_elbow25', code:'PPR-25-90', name:'PPR弯头', spec:'DN25 内丝 90°', unit:'个', stock:210, cost:3.6, price:6.0, aliases:'弯头 25 内牙', cat:'管件'},
+  {id:'p_coupling20', code:'PPR-20-ZT', name:'PPR直接', spec:'DN20', unit:'个', stock:380, cost:1.1, price:2.0, aliases:'直接 20 接头', cat:'管件'},
+  {id:'p_tee20', code:'PPR-20-ST', name:'PPR三通', spec:'DN20', unit:'个', stock:260, cost:3.0, price:5.5, aliases:'三通 20', cat:'管件'},
+  {id:'p_valve20', code:'TQ-20', name:'铜球阀', spec:'DN20 全铜', unit:'个', stock:64, cost:21.0, price:32.0, aliases:'球阀 20 铜', cat:'阀门'},
+  {id:'p_valve25', code:'TQ-25', name:'铜球阀', spec:'DN25 全铜', unit:'个', stock:38, cost:28.0, price:42.0, aliases:'球阀 25 铜', cat:'阀门'},
+  {id:'p_hose50', code:'RG-50', name:'不锈钢软管', spec:'50cm 4分', unit:'根', stock:120, cost:6.5, price:12.0, aliases:'软管 50', cat:'水暖'},
+  {id:'p_hose80', code:'RG-80', name:'不锈钢软管', spec:'80cm 4分', unit:'根', stock:75, cost:8.0, price:15.0, aliases:'软管 80', cat:'水暖'},
+  {id:'p_tape', code:'SLD', name:'生料带', spec:'20m 加厚', unit:'卷', stock:800, cost:1.0, price:2.5, aliases:'生胶带 防水带', cat:'辅材'},
+  {id:'p_glue', code:'BLJ-ZX', name:'玻璃胶', spec:'中性 300ml 透明', unit:'支', stock:90, cost:8.5, price:15.0, aliases:'胶 透明', cat:'辅材'},
+  {id:'p_glue_white', code:'BLJ-BS', name:'玻璃胶', spec:'中性 300ml 白色', unit:'支', stock:60, cost:8.5, price:15.0, aliases:'胶 白色', cat:'辅材'},
+  {id:'p_angle', code:'JF-4', name:'角阀', spec:'4分 加厚', unit:'个', stock:150, cost:9.0, price:16.0, aliases:'三角阀 4分', cat:'阀门'},
+  {id:'p_faucet', code:'SLT-DL', name:'水龙头', spec:'单冷 4分', unit:'个', stock:45, cost:28.0, price:45.0, aliases:'龙头 单冷', cat:'水暖'},
+  {id:'p_drain', code:'DL-FC', name:'地漏', spec:'防臭 50管', unit:'个', stock:70, cost:12.0, price:22.0, aliases:'地漏 防臭', cat:'水暖'},
+  {id:'p_wire25', code:'BV-2.5', name:'电线', spec:'BV2.5 100米 红', unit:'卷', stock:55, cost:145.0, price:178.0, aliases:'线 2.5 红', cat:'电工'},
+  {id:'p_conduit20', code:'PVC-20', name:'穿线管', spec:'PVC20 3米', unit:'根', stock:240, cost:3.2, price:5.5, aliases:'线管 20', cat:'电工'},
+  {id:'p_nail50', code:'SD-50', name:'水泥钉', spec:'50mm 500g', unit:'盒', stock:130, cost:4.0, price:7.0, aliases:'钢钉 50', cat:'五金'},
+  {id:'p_screw', code:'ZG-4x30', name:'自攻螺丝', spec:'4×30 500颗', unit:'盒', stock:160, cost:6.0, price:10.0, aliases:'螺丝 4*30', cat:'五金'},
+  {id:'p_bolt8', code:'PZ-8', name:'膨胀螺栓', spec:'8mm 100套', unit:'盒', stock:88, cost:9.0, price:15.0, aliases:'膨胀 8', cat:'五金'},
+  {id:'p_pex1216', code:'LSG-1216', name:'铝塑管', spec:'1216 米', unit:'米', stock:500, cost:2.8, price:4.5, aliases:'铝塑 1216', cat:'管材'},
+  {id:'p_pex_fit', code:'LSG-JT1216', name:'铜接头', spec:'1216 外丝', unit:'个', stock:300, cost:3.5, price:6.0, aliases:'接头 1216', cat:'管件'},
+  {id:'p_gate25', code:'ZF-25', name:'闸阀', spec:'DN25 铸铁', unit:'个', stock:26, cost:35.0, price:52.0, aliases:'闸阀 25', cat:'阀门'},
+  {id:'p_check20', code:'ZHF-20', name:'止回阀', spec:'DN20 铜', unit:'个', stock:33, cost:18.0, price:28.0, aliases:'止回 20', cat:'阀门'},
+  {id:'p_gauge', code:'YLB-10', name:'压力表', spec:'1.0MPa 表盘60', unit:'个', stock:22, cost:16.0, price:26.0, aliases:'压力表 1.0', cat:'仪表'},
+  {id:'p_insul20', code:'BWM-20', name:'保温棉', spec:'DN20 1.8米', unit:'根', stock:140, cost:2.4, price:4.0, aliases:'保温 20', cat:'辅材'},
+  {id:'p_hemp', code:'MS', name:'麻丝', spec:'500g', unit:'包', stock:60, cost:5.0, price:8.0, aliases:'麻 500g', cat:'辅材'},
+  {id:'p_paint', code:'QY', name:'铅油', spec:'500g', unit:'桶', stock:40, cost:7.0, price:11.0, aliases:'铅油 500', cat:'辅材'}
+];
+
+const CUSTOMERS = [
+  {id:'c_wang', name:'王师傅装修队', py:'wsf', factor:0.90, receivable:1280.00, recent:['p_ppr20_28','p_elbow20','p_tape','p_valve20','p_hose50'], last:{p_ppr20_28:16.20,p_elbow20:3.60,p_tape:2.25,p_valve20:28.80,p_hose50:10.80,p_glue:13.50}},
+  {id:'c_li', name:'李工水电', py:'lgsd', factor:0.95, receivable:640.00, recent:['p_ppr20_28','p_tee20','p_tape'], last:{p_ppr20_28:17.10,p_tee20:5.20}},
+  {id:'c_chen', name:'老陈水暖', py:'lc', factor:0.92, receivable:2350.00, recent:['p_valve20','p_angle','p_hose50'], last:{p_valve20:29.40,p_angle:14.70}},
+  {id:'c_jiamei', name:'佳美装饰', py:'jmzs', factor:0.88, receivable:4200.00, recent:['p_ppr20_34','p_elbow25','p_wire25'], last:{p_ppr20_34:21.10,p_elbow25:5.30}},
+  {id:'c_hengda', name:'恒达物业', py:'hdwy', factor:0.90, receivable:890.00, recent:['p_hose50','p_tape','p_glue'], last:{p_hose50:10.80}},
+  {id:'c_chengdong', name:'城东建材', py:'cdjc', factor:0.93, receivable:0.00, recent:['p_ppr25_35','p_gate25'], last:{}},
+  {id:'c_xinyuan', name:'新源工程队', py:'xygcd', factor:0.90, receivable:1560.00, recent:['p_wire25','p_conduit20'], last:{}},
+  {id:'c_zhou', name:'周师傅', py:'zsf', factor:0.95, receivable:320.00, recent:['p_ppr20_28','p_coupling20'], last:{}},
+  {id:'c_lu', name:'陆姐', py:'lj', factor:1.00, receivable:0.00, recent:['p_glue','p_tape'], last:{}},
+  {id:'c_huang', name:'黄工', py:'hg', factor:0.97, receivable:1180.00, recent:['p_valve20','p_check20'], last:{}},
+  {id:'c_zhang', name:'张伟', py:'zw', factor:1.00, receivable:0.00, recent:['p_faucet','p_drain'], last:{}},
+  {id:'c_sanke', name:'散客', py:'sk', factor:1.00, receivable:0.00, recent:[], last:{}}
+];
+
+const TASK = [
+  {id:'cust', text:'选客户：王师傅装修队'},
+  {id:'l1', text:'加 PPR水管 DN20 2.8壁厚 × 10'},
+  {id:'l2', text:'加 PPR弯头 DN20 内丝 × 20'},
+  {id:'l3', text:'加 生料带 × 5'},
+  {id:'l4', text:'加 铜球阀 DN20 × 2，单价改成 28（会弹确认）'},
+  {id:'l5', text:'加 不锈钢软管 50cm × 4'},
+  {id:'l6', text:'加 玻璃胶 中性 × 3'},
+  {id:'pay', text:'收款：微信 300，其余挂账'},
+  {id:'eff', text:'生效并打印'}
+];
+/* 打印任务只算 8 项：生效即视为完成；打印次数另计 */
+const TASK_VISIBLE = TASK.slice(0,8);
+
+const VARIANTS = {
+  A:{name:'一屏键盘流', tag:'一屏'},
+  B:{name:'两步选货', tag:'两步'},
+  C:{name:'向导四步', tag:'向导'},
+  D:{name:'手机竖屏', tag:'手机'}
+};
+
+/* ============================== 状态 ============================== */
+const S = {
+  variant:'A', type:'sales', customerId:null, bizDate:'2026-11-24',
+  lines:[], payMethod:'微信', payAmount:0, discount:0, remark:'',
+  effective:false, docNo:'', printed:0, quoteRef:'', priceSource:'',
+  show:{spec:true, stock:true, last:false, tax:false},
+  stepB:1, stepC:1, dCustOpen:false, dPayOpen:false, dSearchOpen:false, custOpen:false, colsOpen:false,
+  search:'', activeSearch:0, currentResults:[],
+  startedAt:null, stoppedAt:null, timerId:null, keys:0,
+  modalOpen:false
+};
+let pendingConfirm = null;
+let lastLineId = null;
+
+/* ============================== 工具 ============================== */
+function $(s){ return document.querySelector(s); }
+function setText(sel, txt){ const el=$(sel); if(el) el.textContent = txt; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmt(n){ const v = Math.round((Number(n)||0)*100)/100; return v.toFixed(2); }
+function norm(s){ return String(s||'').normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim(); }
+function nowTime(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0'); }
+function toast(msg, kind){
+  const t = document.getElementById('toast');
+  if(!t) return;
+  t.textContent = msg;
+  t.className = 'show ' + (kind||'');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(function(){ t.className = ''; }, 2800);
+}
+function product(id){ return PRODUCTS.find(p=>p.id===id); }
+function customer(){ return CUSTOMERS.find(c=>c.id===S.customerId) || null; }
+function lineById(id){ return S.lines.find(l=>l.id===id); }
+function resolvePrice(p, c){ const f = c ? c.factor : 1; return Math.round(p.price*f*100)/100; }
+function lastPrice(p, c){ if(c && c.last && c.last[p.id]) return c.last[p.id]; return null; }
+
+function totals(){
+  const gross = S.lines.reduce((a,l)=>a + l.qty*l.price, 0);
+  const discount = Number(S.discount)||0;
+  const payable = Math.max(0, gross - discount);
+  const pay = Number(S.payAmount)||0;
+  return {count:S.lines.length, gross, discount, payable, pay, due:payable-pay};
+}
+function taskDone(id){
+  const has = (pid, qty, price) => S.lines.some(l => l.pid===pid && Math.abs(l.qty-qty)<1e-6 && (price==null || Math.abs(l.price-price)<0.005));
+  switch(id){
+    case 'cust': return S.customerId==='c_wang';
+    case 'l1': return has('p_ppr20_28',10);
+    case 'l2': return has('p_elbow20',20);
+    case 'l3': return has('p_tape',5);
+    case 'l4': return has('p_valve20',2,28);
+    case 'l5': return has('p_hose50',4);
+    case 'l6': return has('p_glue',3);
+    case 'pay': return S.payMethod==='微信' && Math.abs((Number(S.payAmount)||0)-300)<0.005;
+    case 'eff': return S.effective;
+  }
+  return false;
+}
+function taskCount(){ return TASK_VISIBLE.filter(t=>taskDone(t.id)).length; }
+
+/* ============================== 检索 ============================== */
+function scoreToken(p, t){
+  const code = norm(p.code), codeFlat = code.replace(/[-\s]/g,'');
+  const tf = t.replace(/[-\s]/g,'');
+  const name = norm(p.name), spec = norm(p.spec), alias = norm(p.aliases||''), all = name+' '+spec+' '+alias;
+  if(tf && codeFlat === tf) return 1000;
+  if(tf && codeFlat.startsWith(tf)) return 800;
+  if(tf && codeFlat.includes(tf)) return 600;
+  const specParts = spec.split(/[\s/]+/).filter(Boolean);
+  if(specParts.includes(t)) return 500;
+  if(spec.includes(t)) return 420;
+  if(name.includes(t)) return 400;
+  if(alias.includes(t)) return 300;
+  if(all.replace(/\s+/g,'').includes(t)) return 120;
+  return 0;
+}
+function searchProducts(q, c){
+  const tokens = norm(q).split(/\s+/).filter(Boolean);
+  if(!tokens.length) return [];
+  const scored = [];
+  for(const p of PRODUCTS){
+    let score = 0, ok = true;
+    for(const t of tokens){
+      const s = scoreToken(p,t);
+      if(!s){ ok=false; break; }
+      score += s;
+    }
+    if(!ok) continue;
+    if(c && c.recent && c.recent.includes(p.id)) score += 30;
+    if(p.stock>0) score += 5;
+    scored.push({p, score});
+  }
+  scored.sort((a,b)=> b.score-a.score || a.p.name.localeCompare(b.p.name,'zh'));
+  return scored.slice(0,8).map(x=>x.p);
+}
+function searchCustomers(q){
+  const nq = norm(q);
+  return CUSTOMERS.filter(c => !nq || norm(c.name).includes(nq) || norm(c.py).includes(nq) || norm(c.name).replace(/\s/g,'').includes(nq.replace(/\s/g,''))).slice(0,8);
+}
+
+/* ============================== 计时 ============================== */
+function startTimer(){
+  if(S.startedAt || S.effective) return;
+  S.startedAt = Date.now();
+  if(S.timerId) clearInterval(S.timerId);
+  S.timerId = setInterval(updateTimer, 250);
+  updateTimer();
+}
+function stopTimer(){
+  if(S.startedAt && !S.stoppedAt) S.stoppedAt = Date.now();
+  if(S.timerId){ clearInterval(S.timerId); S.timerId=null; }
+  updateTimer();
+}
+function elapsedMs(){
+  if(!S.startedAt) return 0;
+  return (S.stoppedAt || Date.now()) - S.startedAt;
+}
+function fmtMs(ms){
+  const s = Math.floor(ms/1000);
+  return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
+function updateTimer(){
+  const txt = fmtMs(elapsedMs());
+  setText('#timerTop', txt);
+  setText('#drawerTimer', txt);
+  setText('#keysTop', S.keys);
+  setText('#drawerKeys', S.keys);
+}
+
+/* ============================== 变更 ============================== */
+function markDirty(){
+  const el = document.getElementById('autosave');
+  if(el) el.textContent = '草稿已自动保存 ' + nowTime();
+}
+function chooseCustomer(id){
+  const c = CUSTOMERS.find(x=>x.id===id); if(!c) return;
+  S.customerId = id;
+  S.search = '';
+  for(const l of S.lines){
+    if(!l.override){ const p=product(l.pid); if(p) l.price = resolvePrice(p, c); }
+  }
+  if(S.variant==='B' && S.stepB===1) S.stepB = 2;
+  if(S.variant==='C' && S.stepC===1) S.stepC = 2;
+  S.dCustOpen = false;
+  render();
+  toast('客户：' + c.name + (c.receivable ? ' · 应收 ¥'+fmt(c.receivable) : ''), 'ok');
+  setTimeout(focusSearch, 30);
+}
+function addProduct(pid){
+  const p = product(pid); if(!p) return;
+  const c = customer();
+  const price = resolvePrice(p, c);
+  const existing = S.lines.find(l => l.pid===pid && Math.abs(l.price-price)<0.005 && !l.override);
+  if(existing){
+    existing.qty += 1;
+    lastLineId = existing.id;
+    markDirty();
+    render();
+    toast('已在单上，' + p.name + ' 数量 +1', 'ok');
+  } else {
+    const l = {id:'l'+Date.now()+Math.floor(Math.random()*1000), pid, qty:1, price, override:false, unit:p.unit, remark:''};
+    S.lines.push(l);
+    lastLineId = l.id;
+    markDirty();
+    render();
+  }
+  S.search = '';
+  if(S.variant==='D') S.dSearchOpen = false;
+  const el = document.getElementById('prodSearch');
+  if(el){ el.focus(); }
+  setTimeout(()=>{
+    const q = document.querySelector('.qty[data-lid="'+lastLineId+'"]');
+    if(q){ q.focus(); q.select(); }
+  }, 10);
+}
+function removeLine(lid){
+  S.lines = S.lines.filter(l=>l.id!==lid);
+  markDirty(); render();
+}
+function onQty(lid, el){
+  const l = lineById(lid); if(!l) return;
+  l.qty = Math.max(0, Number(el.value)||0);
+  const tr = el.closest('tr') || el.closest('.d-line');
+  if(tr){ const a=tr.querySelector('.amt'); if(a) a.textContent = fmt(l.qty*l.price); }
+  updateTotalsDom(); markDirty(); renderTask();
+}
+function onPriceChange(lid, el){
+  const l = lineById(lid); if(!l) return;
+  const p = product(l.pid);
+  const c = customer();
+  const resolved = resolvePrice(p, c);
+  const nv = Math.round((Number(el.value)||0)*100)/100;
+  if(!el.value || isNaN(Number(el.value))){ el.value = fmt(l.price); return; }
+  if(Math.abs(nv-l.price)<0.005){ el.value=fmt(l.price); return; }
+  const diff = Math.round((resolved - nv)*100)/100;
+  const body = '<p><b>'+esc(p.name)+' '+esc(p.spec)+'</b></p>'
+    + '<div class="pricebox"><span>解析价 ¥'+fmt(resolved)+'</span><span>→</span><span class="new">¥'+fmt(nv)+'</span>'
+    + (diff>0 ? '<span class="danger">让价 ¥'+fmt(diff)+'</span>' : '<span class="sub">高于解析价</span>') + '</div>'
+    + '<p class="sub">'+(diff>0 ? '让价会记入「今日让价」清单，首页可见。' : '高于解析价不需要让价审批。')+' 改价后仍可继续编辑。</p>';
+  openConfirm({
+    title:'成交价 ≠ 价格表解析价',
+    body,
+    okText:'确认改价',
+    onOk:()=>{ l.price=nv; l.override=true; markDirty(); render(); toast('已改价，行价 ¥'+fmt(nv), 'warn'); },
+    onCancel:()=>{ el.value = fmt(l.price); }
+  });
+}
+function onDiscountChange(el){
+  S.discount = Math.max(0, Number(el.value)||0);
+  updateTotalsDom(); markDirty(); renderTask();
+}
+function onPayInput(el){
+  S.payAmount = Math.max(0, Number(el.value)||0);
+  updateTotalsDom(); renderTask();
+}
+function setPayMethod(el){ S.payMethod = el.value; renderTask(); }
+function payFull(){
+  S.payAmount = totals().payable;
+  const el = document.getElementById('payInput');
+  if(el) el.value = fmt(S.payAmount);
+  updateTotalsDom(); renderTask();
+}
+function updateTotalsDom(){
+  const t = totals();
+  setText('#sumCount', '共 '+t.count+' 行');
+  setText('#totalGross', '¥'+fmt(t.payable));
+  setText('#totalDisc', '¥'+fmt(t.discount));
+  setText('#totalPay', '¥'+fmt(t.pay));
+  setText('#dueInline', t.due>=0 ? '¥'+fmt(t.due) : '预收 ¥'+fmt(-t.due));
+  const c = customer();
+  setText('#recvAfter', '¥'+fmt((c?c.receivable:0) + t.due));
+  const net = t.payable/1.13, tax = t.payable-net;
+  setText('#netTaxLine', '未税 ¥'+fmt(net)+' · 税额 ¥'+fmt(tax));
+  setText('#payHint', t.pay===0 ? '未收，整单挂账' : (t.due>0 ? '部分收款' : (t.due<0 ? '多收，转预收' : '已收清')));
+  const d = document.getElementById('dTotal'); if(d) d.textContent = '¥'+fmt(t.payable);
+}
+function setType(t){
+  if(S.effective){ toast('已生效，不能改单据类型', 'warn'); return; }
+  if(S.type===t) return;
+  S.type = t;
+  if(t==='quote'){ S.payAmount = 0; }
+  render();
+  toast(t==='quote' ? '报价单：收款区收起，其余同一编辑器；转销售单时锁价' : '销售单：收款区展开', 'ok');
+}
+function makeEffective(){
+  if(S.effective) return;
+  if(!S.customerId){ toast('先选客户——散客也是一条客户档案', 'warn'); focusCustomer(); return; }
+  if(!S.lines.length){ toast('先加至少一行商品', 'warn'); focusSearch(); return; }
+  const t = totals();
+  if(S.type==='sales' && t.pay > t.payable){
+    openConfirm({title:'收款多于应收', body:'<p>本次收款 ¥'+fmt(t.pay)+' 大于价税合计 ¥'+fmt(t.payable)+'，差额 ¥'+fmt(t.pay-t.payable)+' 会转为客户预收。</p><p class="sub">这不是错误，五金店常见「先收整钱、下次抵扣」。</p>', okText:'确认生效', onOk:doEffective});
+    return;
+  }
+  doEffective();
+}
+function doEffective(){
+  S.effective = true;
+  S.docNo = (S.type==='sales'?'XS':'BJ') + '20261124' + String(1).padStart(3,'0');
+  stopTimer();
+  render();
+  toast('已生效：'+S.docNo+'（草稿转正，占号）','ok');
+  setTimeout(openPrint, 60);
+}
+function newOrder(){
+  S.lines=[]; S.payAmount=0; S.discount=0; S.remark=''; S.effective=false; S.docNo=''; S.printed=0;
+  S.startedAt=null; S.stoppedAt=null; S.keys=0; S.quoteRef=''; S.priceSource=''; S.search='';
+  if(S.timerId){ clearInterval(S.timerId); S.timerId=null; }
+  render(); updateTimer();
+  toast('已开新单，演示计时已归零','ok');
+}
+function resetAll(){
+  S.lines=[]; S.customerId=null; S.payAmount=0; S.discount=0; S.remark=''; S.effective=false; S.docNo=''; S.printed=0;
+  S.startedAt=null; S.stoppedAt=null; S.keys=0; S.quoteRef=''; S.priceSource=''; S.search=''; S.activeSearch=0;
+  S.stepB=1; S.stepC=1; S.dCustOpen=false; S.dPayOpen=false; S.dSearchOpen=false; S.custOpen=false; S.type='sales';
+  if(S.timerId){ clearInterval(S.timerId); S.timerId=null; }
+  closeModal(); render(); updateTimer();
+  toast('演示已重置：数据、计时、击键全部归零','ok');
+}
+
+/* ============================== 弹层 ============================== */
+function openModal(html){
+  const m = document.getElementById('modal');
+  m.innerHTML = '<div class="modal-card">'+html+'</div>';
+  m.classList.remove('hidden');
+  S.modalOpen = true;
+}
+function closeModal(){
+  const m = document.getElementById('modal');
+  if(!m) return;
+  m.classList.add('hidden'); m.innerHTML = '';
+  S.modalOpen = false;
+}
+function openConfirm(o){
+  pendingConfirm = o;
+  openModal('<h3>'+esc(o.title)+'</h3><div class="mbody">'+o.body+'</div><div class="mfoot">'
+    + '<button onclick="confirmNo()">取消</button>'
+    + '<button class="primary" onclick="confirmYes()">'+esc(o.okText||'确认')+'</button></div>');
+}
+function confirmYes(){ const o=pendingConfirm; pendingConfirm=null; closeModal(); if(o && o.onOk) o.onOk(); }
+function confirmNo(){ const o=pendingConfirm; pendingConfirm=null; closeModal(); if(o && o.onCancel) o.onCancel(); }
+function openPrint(){
+  const t = totals();
+  const c = customer();
+  const isQuote = S.type==='quote';
+  let rows = S.lines.map((l,i)=>{
+    const p=product(l.pid);
+    return '<tr><td>'+(i+1)+'</td><td>'+esc(p.name)+'</td><td>'+esc(p.spec)+'</td><td>'+esc(l.unit)+'</td><td class="n">'+fmt(l.qty)+'</td><td class="n">'+fmt(l.price)+'</td><td class="n">'+fmt(l.qty*l.price)+'</td></tr>';
+  }).join('');
+  if(!rows) rows = '<tr><td colspan="7" class="sub">（无明细）</td></tr>';
+  const title = isQuote ? '报 价 单' : '销 售 单';
+  const no = S.docNo || (isQuote?'BJ20261124001':'XS20261124001');
+  const head = '<div class="print-title">jxc 五金水暖</div><div class="print-title" style="letter-spacing:.6em;font-size:12px">'+title+'</div>'
+    + '<div class="pmeta"><span>单号 '+no+'</span><span>日期 '+S.bizDate+'</span></div>'
+    + '<div class="pmeta"><span>客户 '+esc(c?c.name:'—')+'</span><span>'+(isQuote?'有效期 2026-11-24 ~ 2026-12-08':'第 1 版 · 客户联')+'</span></div>'
+    + '<table class="ptable"><thead><tr><th>#</th><th>商品</th><th>规格</th><th>单位</th><th class="n">数量</th><th class="n">单价</th><th class="n">金额</th></tr></thead><tbody>'+rows+'</tbody></table>'
+    + '<div class="pmeta"><span>价税合计</span><span>¥'+fmt(t.payable)+'</span></div>'
+    + (isQuote ? '<div class="pmeta"><span>报价有效期</span><span>15 天（过期只提示，不迁移状态）</span></div>'
+      : '<div class="pmeta"><span>本次收款（'+esc(S.payMethod)+'）</span><span>¥'+fmt(t.pay)+'</span></div><div class="pmeta"><span>本单欠款</span><span>¥'+fmt(t.due)+'</span></div>')
+    + '<div class="print-foot"><span>开单人：店员A</span><span>打印第 '+(S.printed+1)+' 次 · '+(isQuote?'客户联':'客户联 / 存根联')+'</span></div>';
+  const foot = isQuote
+    ? '<button onclick="closeModal()">关闭</button><button class="primary" onclick="printDoc()">打印报价单</button><button onclick="convertQuote()">转为销售单 →</button>'
+    : '<button onclick="closeModal()">关闭</button><button class="primary" onclick="printDoc()">打印（针式/ A4）</button>';
+  openModal('<h3>打印预览 · '+(isQuote?'报价单':'销售单')+'</h3><div class="mbody"><div class="ticket">'+head+'</div><p class="sub">原型不真打印：这里验证「生效后立刻看到纸面」，以及补打入口是否在同一位置。</p></div><div class="mfoot">'+foot+'</div>');
+}
+function printDoc(){
+  S.printed += 1;
+  closeModal();
+  render();
+  toast('已打印第 '+S.printed+' 次；补打入口在单据头部','ok');
+}
+function convertQuote(){
+  const ref = S.docNo || 'BJ20261124001';
+  const oldLines = S.lines.map(l=>({...l}));
+  closeModal();
+  S.type='sales'; S.effective=false; S.docNo=''; S.printed=0; S.quoteRef=ref; S.priceSource='quote';
+  S.lines = oldLines; S.payAmount=0;
+  S.startedAt=null; S.stoppedAt=null; S.keys=0;
+  if(S.timerId){ clearInterval(S.timerId); S.timerId=null; }
+  render(); updateTimer();
+  toast('已从报价单 '+ref+' 生成销售单草稿，价格已锁定（改价会留痕）','ok');
+}
+
+/* ============================== 商城/客户下拉 ============================== */
+function focusCustomer(){
+  const el = document.getElementById('custInput') || document.getElementById('bcustSearch') || document.getElementById('ccustSearch') || document.getElementById('dcustSearch');
+  if(el) el.focus();
+}
+function focusSearch(){
+  const el = document.getElementById('prodSearch') || document.getElementById('bprodSearch') || document.getElementById('cprodSearch') || document.getElementById('dprodSearch');
+  if(el) el.focus();
+}
+function onCustSearch(q, listId, prefix){
+  const list = document.getElementById(listId); if(!list) return;
+  const res = searchCustomers(q);
+  const recent = CUSTOMERS.filter(c=>['c_wang','c_li','c_chen','c_jiamei','c_sanke'].includes(c.id));
+  let html = '';
+  if(!norm(q)){
+    html += '<div class="dd-foot">最近客户（输入姓名或首字母筛选，共 200 户）</div>';
+    html += recent.map(c=>custRow(c, prefix)).join('');
+  } else {
+    html += res.length ? res.map(c=>custRow(c, prefix)).join('') : '<div class="dd-row sub">没有匹配的客户；散客永远可选</div>';
+  }
+  list.innerHTML = html; list.style.display='block';
+}
+function custRow(c, prefix){
+  return '<div class="dd-row" onmousedown="chooseCustomer(\''+c.id+'\')"><b>'+esc(c.name)+'</b><span class="tagline">'+esc(c.py)+'</span><span class="meta">应收 ¥'+fmt(c.receivable)+'</span></div>';
+}
+function onCustKey(e, listId){
+  if(e.key==='Enter'){
+    e.preventDefault();
+    const first = document.querySelector('#'+listId+' .dd-row');
+    if(first) first.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+  }
+  if(e.key==='Escape'){ const l=document.getElementById(listId); if(l) l.style.display='none'; }
+}
+function onProdSearch(q){
+  S.search = q;
+  S.activeSearch = 0;
+  const list = document.getElementById('prodList'); if(!list) return;
+  let html = '';
+  if(!norm(q)){
+    const c = customer();
+    const rec = c && c.recent && c.recent.length ? c.recent.map(product).filter(Boolean) : [];
+    const pop = PRODUCTS.filter(p=>p.stock>0).slice(0,6);
+    const items = (rec.length?rec:pop).slice(0,6);
+    html += '<div class="dd-foot">'+(c ? esc(c.name)+' 最近买过 / 常用商品' : '常用商品（选客户后按该客户最近购买排序）')+'</div>';
+    html += items.map((p,i)=>prodRow(p,i,0)).join('');
+  } else {
+    const res = searchProducts(q, customer());
+    S.currentResults = res.map(p=>p.id);
+    html += res.length ? res.map((p,i)=>prodRow(p,i,1)).join('') : '<div class="dd-row sub">没搜到。试试编码、名称或规格，空格分词（如「DN20 内丝」）</div>';
+    html += '<div class="dd-foot">排序：编码精确 → 编码前缀 → 规格词 → 名称 → 别名；同分把本客户买过的、有库存的提前</div>';
+  }
+  list.innerHTML = html; list.style.display='block';
+}
+function prodRow(p, i, ranked){
+  const c = customer();
+  const rp = resolvePrice(p,c), lp = lastPrice(p,c);
+  const codeHit = norm(p.code).replace(/[-\s]/g,'').includes(norm(S.search).replace(/[-\s]/g,'')) && norm(S.search);
+  const specHit = norm(S.search).split(/\s+/).filter(Boolean).some(t=>norm(p.spec).includes(t));
+  const match = !norm(S.search) ? '' : (codeHit ? '<span class="match">编码</span>' : (specHit ? '<span class="match">规格</span>' : '<span class="match">名称/别名</span>'));
+  return '<div class="prodrow '+(i===S.activeSearch?'active':'')+'" data-i="'+i+'" onmousedown="addProduct(\''+p.id+'\')">'
+    + '<div class="rk">'+(ranked?(i+1):'·')+'</div>'
+    + '<div class="pmain"><div><span class="pname">'+esc(p.name)+'</span><span class="pspec">'+esc(p.spec)+'</span>'+match+'</div>'
+    + '<div class="psub">'+esc(p.code)+' · 库存 '+p.stock+' '+esc(p.unit)+(lp?' · 上次 ¥'+fmt(lp):'')+'</div></div>'
+    + '<div class="pprice">¥'+fmt(rp)+(lp?'<small>上次 ¥'+fmt(lp)+'</small>':'')+'</div></div>';
+}
+function onProdKey(e){
+  const list = document.getElementById('prodList');
+  if(!list || list.style.display==='none') { if(e.key==='Enter') return; }
+  const n = S.currentResults.length;
+  if(e.key==='ArrowDown'){ e.preventDefault(); if(n){ S.activeSearch=(S.activeSearch+1)%n; repaintProdActive(); } }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); if(n){ S.activeSearch=(S.activeSearch-1+n)%n; repaintProdActive(); } }
+  else if(e.key==='Enter'){
+    e.preventDefault();
+    const id = S.currentResults[S.activeSearch];
+    if(id) addProduct(id);
+  }
+  else if(e.key==='Escape'){ list.style.display='none'; }
+}
+function repaintProdActive(){
+  const list = document.getElementById('prodList'); if(!list) return;
+  list.querySelectorAll('.prodrow').forEach((el,i)=> el.classList.toggle('active', i===S.activeSearch));
+}
+
+/* ============================== 渲染入口 ============================== */
+function render(){
+  startTimerIfNeeded();
+  document.body.dataset.variant = S.variant;
+  const app = document.getElementById('app');
+  if(S.variant==='A') app.innerHTML = renderA();
+  else if(S.variant==='B') app.innerHTML = renderB();
+  else if(S.variant==='C') app.innerHTML = renderC();
+  else app.innerHTML = renderD();
+  setText('#consoleV', S.variant+' · '+VARIANTS[S.variant].name);
+  const sw = document.getElementById('swLabel');
+  if(sw) sw.innerHTML = '<b>'+S.variant+'</b>'+VARIANTS[S.variant].name;
+  renderTask();
+  updateTotalsDom();
+  updateTimer();
+}
+function startTimerIfNeeded(){ /* 计时由真实输入触发，渲染不启动 */ }
+function renderTask(){
+  const n = TASK_VISIBLE.filter(t=>taskDone(t.id)).length;
+  setText('#taskCount', n+'/'+TASK_VISIBLE.length);
+  setText('#drawerTask', n+'/'+TASK_VISIBLE.length);
+  const drawer = document.getElementById('drawer');
+  if(drawer && drawer.classList.contains('open')) renderDrawer();
+  const bar = document.getElementById('taskInline');
+  if(bar) bar.textContent = '演示任务 '+n+'/'+TASK_VISIBLE.length;
+}
+
+/* ============================== A：一屏 ============================== */
+function renderA(){
+  const c = customer();
+  const t = totals();
+  const isQuote = S.type==='quote';
+  return '<div class="a-app">'
+    + '<div class="a-head">'
+      + '<div class="a-head-top">'
+        + '<div class="a-logo">jxc<span>进销存</span></div>'
+        + '<div class="seg"><button class="'+(S.type==='sales'?'on':'')+'" onclick="setType(\'sales\')">销售单</button><button class="'+(isQuote?'on':'')+'" onclick="setType(\'quote\')">报价单</button></div>'
+        + '<span class="a-docno">'+(S.effective ? '已生效 '+S.docNo+' · 第 1 版 · 打印 '+(S.printed||0)+' 次' : (isQuote?'报价单草稿 · 不占号':'销售单草稿 · 不占号'))+'</span>'
+        + '<span style="flex:1"></span>'
+        + '<span class="a-mini" id="timerMini">'+fmtMs(elapsedMs())+' · '+S.keys+' 键</span>'
+        + '<button onclick="'+(S.effective?'openPrint()':'toast(\'草稿不打印；生效后一并按纸面出单\')')+'">'+(S.effective?'补打':'打印')+'</button>'
+      + '</div>'
+      + '<div class="a-head-meta">'
+        + '<label>客户</label>'
+        + '<div class="combo"><input id="custInput" autocomplete="off" placeholder="散客 / 姓名或首字母" value="'+(c?esc(c.name):'')+'" onfocus="this.select()" onclick="this.select();onCustSearch(\'\',\'custList\')" oninput="onCustSearch(this.value,\'custList\',\'\')" onkeydown="onCustKey(event,\'custList\')" onblur="setTimeout(function(){var l=document.getElementById(\'custList\'); if(l) l.style.display=\'none\';},150)"><span class="caret">▾</span><div id="custList" class="dropdown" style="display:none;width:330px"></div></div>'
+        + '<span class="recv">'+(c?'应收 ¥'+fmt(c.receivable):'散客按零售价表')+'</span>'
+        + '<label style="margin-left:8px">业务日期</label><input type="date" value="'+S.bizDate+'" onchange="S.bizDate=this.value;markDirty()" style="padding:3px 5px">'
+        + (isQuote?'<span class="tagline warn">报价单不过账 · 有效期 15 天</span>':'')
+        + '<span class="autosave" id="autosave">草稿自动保存</span>'
+      + '</div>'
+    + '</div>'
+    + '<div class="a-sheet">'
+      + (S.effective?'<div class="a-banner"><b>✓ '+S.docNo+'</b> 已生效，库存与往来已过账；本页只读，要改只能改单（红冲+新版本）。<span style="margin-left:auto"></span><button onclick="openPrint()">补打</button><button onclick="newOrder()">开下一单</button></div>':'')
+      + '<div class="a-tools">'
+        + '<div class="a-search"><input id="prodSearch" autocomplete="off" placeholder="搜商品：编码 / 名称 / 规格，空格分词（如 DN20 2.8）" value="'+esc(S.search)+'" onclick="onProdSearch(this.value)" oninput="onProdSearch(this.value)" onkeydown="onProdKey(event)"><span class="k"><kbd>F2</kbd></span><div id="prodList" class="dropdown prodlist" style="display:none;width:660px"></div></div>'
+        + '<button onclick="toast(\'常用商品：原型里用空搜索的「最近买过」代替\')">常用商品</button>'
+        + '<button onclick="toast(\'客户常买：按 客户 + 最近 90 天聚合，点击加行（规格已定，见票 9 §11）\')">客户常买</button>'
+        + '<button onclick="toast(\'复制上一单：整单复制，清收款、清单号、日期改今天\')">复制上一单</button>'
+        + '<details class="cols" '+(S.colsOpen?'open':'')+' ontoggle="S.colsOpen=this.open"><summary>显示列 ▾</summary><div class="colsbody">'
+          + '<label><input type="checkbox" '+(S.show.spec?'checked':'')+' onchange="S.show.spec=this.checked;render()"> 规格</label>'
+          + '<label><input type="checkbox" '+(S.show.stock?'checked':'')+' onchange="S.show.stock=this.checked;render()"> 库存</label>'
+          + '<label><input type="checkbox" '+(S.show.last?'checked':'')+' onchange="S.show.last=this.checked;render()"> 上次成交价</label>'
+          + '<div class="sub" style="font-size:9.5px;margin-top:2px">默认：规格 + 库存；上次价默认不显示</div>'
+        + '</div></details>'
+        + '<span class="hint"><kbd>Enter</kbd> 加行 · <kbd>F4</kbd> 收款 · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> 生效并打印</span>'
+      + '</div>'
+      + '<div class="a-grid">'
+        + (S.lines.length ? aTable() : '<div class="empty"><b>输入编码 / 名称 / 规格开始</b><span>或点「客户常买」；六行单目标是 90 秒内完成</span><span class="sub">当前排序假设：编码精确 &gt; 编码前缀 &gt; 规格词 &gt; 名称 &gt; 别名</span></div>')
+      + '</div>'
+      + aFoot(c,t,isQuote)
+    + '</div>'
+  + '</div>';
+}
+function aTable(){
+  const showSpec = S.show.spec, showStock = S.show.stock, showLast = S.show.last;
+  const rows = S.lines.map((l,i)=>{
+    const p = product(l.pid);
+    const rp = resolvePrice(p, customer());
+    const lp = lastPrice(p, customer());
+    return '<tr>'
+      + '<td class="idx">'+(i+1)+'</td>'
+      + '<td><span class="pn">'+esc(p.name)+'</span>'+(l.override?'<span class="tagline warn">改价</span>':'')+(S.quoteRef && i===0?'<span class="tagline">源报价</span>':'')+'</td>'
+      + (showSpec?'<td class="pspec">'+esc(p.spec)+'</td>':'')
+      + '<td class="unit">'+esc(l.unit)+'</td>'
+      + '<td><input class="qty" data-lid="'+l.id+'" type="number" min="0" step="1" value="'+l.qty+'" '+(S.effective?'disabled':'')+' oninput="onQty(\''+l.id+'\',this)"></td>'
+      + (showStock?'<td class="stock">'+p.stock+'</td>':'')
+      + '<td><input class="price" type="number" min="0" step="0.01" value="'+fmt(l.price)+'" '+(S.effective?'disabled':'')+' onchange="onPriceChange(\''+l.id+'\',this)" onkeydown="if(event.key===\'Enter\')this.blur()"></td>'
+      + (showLast?'<td class="lastp">'+(lp?'¥'+fmt(lp):'—')+'</td>':'')
+      + '<td class="amt">'+fmt(l.qty*l.price)+'</td>'
+      + '<td style="width:30px">'+(S.effective?'':'<button class="rowdel" title="删除行" onclick="removeLine(\''+l.id+'\')">✕</button>')+'</td>'
+      + '</tr>';
+  }).join('');
+  return '<table class="lines"><thead><tr><th></th><th>商品</th>'+(showSpec?'<th>规格</th>':'')+'<th>单位</th><th style="text-align:right">数量</th>'+(showStock?'<th style="text-align:right">库存</th>':'')+'<th style="text-align:right">单价</th>'+(showLast?'<th style="text-align:right">上次价</th>':'')+'<th style="text-align:right">金额</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+function aFoot(c,t,isQuote){
+  return '<div class="a-foot">'
+    + '<div><div class="sumline" id="sumCount">共 '+t.count+' 行</div><div class="big" id="totalGross">¥'+fmt(t.payable)+'</div><div class="bigsub">价税合计（含税，整单优惠后净额）</div>'
+      + '<div class="sumline" style="margin-top:3px"><label><input type="checkbox" '+(S.show.tax?'checked':'')+' onchange="S.show.tax=this.checked;render()"> 显示未税/税额</label> <span id="netTaxLine" class="'+(S.show.tax?'':'hidden')+'">未税 ¥'+fmt(t.payable/1.13)+' · 税额 ¥'+fmt(t.payable-t.payable/1.13)+'</span></div></div>'
+    + '<div class="a-mid">'
+      + '<div class="l"><span class="lab">整单优惠</span><input class="disc" type="number" min="0" step="0.01" value="'+fmt(S.discount)+'" '+(S.effective?'disabled':'')+' onchange="onDiscountChange(this)"><span class="sub">含让价/抹零，按行分摊；店员 ≤ 1 元</span></div>'
+      + '<div class="l"><span class="lab">本次收款</span><input class="pay" id="payInput" type="number" min="0" step="0.01" value="'+fmt(S.payAmount)+'" '+(S.effective||isQuote?'disabled':'')+' oninput="onPayInput(this)"><select id="payMethod" '+(S.effective||isQuote?'disabled':'')+' onchange="setPayMethod(this)">'+['微信','现金','支付宝','银行转账','其他'].map(m=>'<option '+(S.payMethod===m?'selected':'')+'>'+m+'</option>').join('')+'</select><button class="ghost" '+(S.effective||isQuote?'disabled':'')+' onclick="payFull()">收全款</button><span class="payhint" id="payHint">'+(t.pay===0?'未收，整单挂账':(t.due>0?'部分收款':'已收清'))+'</span></div>'
+      + '<div class="l"><span class="lab">本单欠款</span><span class="due" id="dueInline">'+(t.due>=0?'¥'+fmt(t.due):'预收 ¥'+fmt(-t.due))+'</span><span class="sub">· 客户累计应收（生效后）<span id="recvAfter">¥'+fmt((c?c.receivable:0)+t.due)+'</span></span></div>'
+    + '</div>'
+    + '<div class="a-right">'
+      + (S.effective
+        ? '<button class="primary" onclick="openPrint()">补打这张单</button><div class="row2"><button onclick="newOrder()">开下一单</button><button onclick="resetAll()">重置演示</button></div>'
+        : '<button class="primary" onclick="makeEffective()">'+(isQuote?'保存报价单':'生效并打印')+' <kbd style="border-color:#5a7ee8;background:#2a58d8;color:#fff">Ctrl+Enter</kbd></button>'
+          + '<div class="row2"><button onclick="toast(\'草稿已自动保存；草稿不占号、不影响库存\')">存草稿</button><button onclick="resetAll()">清空</button></div>')
+      + '<div class="sub" id="taskInline" style="text-align:right">演示任务 '+taskCount()+'/'+TASK_VISIBLE.length+'</div>'
+    + '</div>'
+  + '</div>';
+}
+
+/* ============================== B：两步 ============================== */
+function renderB(){
+  const step=S.stepB;
+  return '<div class="b-app">'
+    + '<div class="b-steps">'
+      + bStepTab(1,step,'选客户') + bStepTab(2,step,'选商品') + bStepTab(3,step,'结算')
+      + '<div class="spacer"></div>'
+      + '<div class="seg"><button class="'+(S.type==='sales'?'on':'')+'" onclick="setType(\'sales\')">销售单</button><button class="'+(S.type==='quote'?'on':'')+'" onclick="setType(\'quote\')">报价单</button></div>'
+      + '<span class="a-mini" style="margin-left:12px">'+fmtMs(elapsedMs())+' · '+S.keys+' 键</span>'
+    + '</div>'
+    + '<div class="b-body">' + (step===1?bStep1():step===2?bStep2():bStep3()) + '</div>'
+  + '</div>';
+}
+function bStepTab(n,cur,label){
+  return '<div class="b-step '+(cur===n?'on':'')+' '+(cur>n?'done':'')+'"><i>'+(cur>n?'✓':n)+'</i>'+label+'</div>';
+}
+function bStep1(){
+  const recent=['c_wang','c_li','c_chen','c_jiamei','c_sanke'].map(id=>CUSTOMERS.find(c=>c.id===id)).filter(Boolean);
+  return '<div class="b-step-pane"><div class="b-custwrap">'
+    + '<div class="b-h">这单卖给谁？</div>'
+    + '<div class="b-sub">200 户里先给最近 5 户；输入姓名或首字母，散客永远可选。客户必填——散客也是一条档案。</div>'
+    + '<div class="b-search" style="position:relative"><input id="bcustSearch" autocomplete="off" placeholder="输入客户名或首字母，如 wsf / 王师傅" oninput="onBCustSearch(this.value)" onfocus="onBCustSearch(\'\')" onblur="setTimeout(function(){var l=document.getElementById(\'bcustList\'); if(l) l.style.display=\'none\';},150)"><div id="bcustList" class="dropdown" style="display:none;width:100%"></div></div>'
+    + '<div class="b-recent">'+recent.map(c=>'<button class="b-ccard" onclick="chooseCustomer(\''+c.id+'\')"><b>'+esc(c.name)+'</b><span>'+esc(c.py)+' · 应收 ¥'+fmt(c.receivable)+'</span><div class="r">'+(c.recent.length?c.recent.length+' 个常买':'—')+'</div></button>').join('')+'</div>'
+    + '<div class="panel-h" style="border:1px solid var(--line);border-bottom:0"><b>全部客户</b><span class="sub">按最近交易排序（原型只给 12 户）</span><div class="spacer"></div><span class="sub">应收</span></div>'
+    + '<table class="b-ctable"><thead><tr><th>客户</th><th>首字母</th><th style="text-align:right">应收余额</th><th>常买</th></tr></thead><tbody id="bcustRows">'+bCustRows('')+'</tbody></table>'
+  + '</div></div>';
+}
+function bCustRows(q){
+  return searchCustomers(q).map(c=>'<tr onclick="chooseCustomer(\''+c.id+'\')"><td><b>'+esc(c.name)+'</b></td><td class="sub">'+esc(c.py)+'</td><td style="text-align:right;font-family:var(--mono)">¥'+fmt(c.receivable)+'</td><td class="sub">'+(c.recent.length?c.recent.length+' 个常买':'—')+'</td></tr>').join('');
+}
+function onBCustSearch(q){
+  const rows=document.getElementById('bcustRows'); if(rows) rows.innerHTML=bCustRows(q);
+  const list=document.getElementById('bcustList');
+  if(list){ list.innerHTML=searchCustomers(q).map(c=>custRow(c)).join(''); list.style.display='block'; }
+}
+function bStep2(){
+  const c=customer();
+  const q=S.search||'';
+  return '<div class="b-step-pane">'
+    + '<div class="b-left">'
+      + '<div class="panel-h"><b>选商品</b><span class="sub">点行或「加入」；数量在右侧改</span><div class="spacer"></div><span class="who">'+esc(c?c.name:'')+'</span></div>'
+      + '<div class="b-prodsearch"><input id="bprodSearch" autocomplete="off" placeholder="搜编码 / 名称 / 规格（空格分词）" value="'+esc(q)+'" oninput="onBProdSearch(this.value)" onfocus="onBProdSearch(this.value)"></div>'
+      + '<div class="b-results" id="bResults">'+bResultRows(q)+'</div>'
+    + '</div>'
+    + '<div class="b-right">'
+      + '<div class="panel-h"><b>本单明细</b><div class="spacer"></div><span class="sub" id="bCount">共 '+S.lines.length+' 行</span></div>'
+      + '<div class="b-cart">'+bCart()+'</div>'
+      + '<div class="b-totals">'+bTotals()+'</div>'
+      + '<div class="b-actions"><button onclick="goStepB(1)">← 换客户</button><button class="primary" onclick="goStepB(3)">去结算 →</button></div>'
+    + '</div>'
+  + '</div>';
+}
+function bResultRows(q){
+  const c=customer();
+  let list = q ? searchProducts(q,c) : (c&&c.recent&&c.recent.length ? c.recent.map(product).filter(Boolean) : PRODUCTS.slice(0,10));
+  if(!list.length) return '<div class="b-empty">没搜到。换个词，或清空看最近买过。</div>';
+  return list.slice(0,10).map(p=>{
+    const rp=resolvePrice(p,c), lp=lastPrice(p,c);
+    return '<div class="b-prow" onclick="addProduct(\''+p.id+'\')">'
+      + '<div class="pmain"><div><span class="pn">'+esc(p.name)+'</span><span class="spec">'+esc(p.spec)+'</span></div>'
+      + '<div class="meta">'+esc(p.code)+' · 库存 '+p.stock+' '+esc(p.unit)+(lp?' · 上次 ¥'+fmt(lp):'')+'</div></div>'
+      + '<div class="pp">¥'+fmt(rp)+'<small>'+(lp?'上次 ¥'+fmt(lp):'')+'</small></div>'
+      + '<button class="add" onclick="event.stopPropagation();addProduct(\''+p.id+'\')">加入</button></div>';
+  }).join('');
+}
+function onBProdSearch(q){ S.search=q; const el=document.getElementById('bResults'); if(el) el.innerHTML=bResultRows(q); }
+function bCart(){
+  if(!S.lines.length) return '<div class="b-empty">右边还空着。<br>左边点商品，或直接搜。</div>';
+  return '<table><thead><tr><th>商品</th><th style="text-align:right">数量</th><th style="text-align:right">单价</th><th style="text-align:right">金额</th><th></th></tr></thead><tbody>'
+    + S.lines.map(l=>{
+      const p=product(l.pid);
+      return '<tr><td><div class="nm">'+esc(p.name)+'</div><div class="sp">'+esc(p.spec)+' · '+esc(l.unit)+(l.override?' · 已改价':'')+'</div></td>'
+        + '<td><input class="qty" data-lid="'+l.id+'" type="number" min="0" value="'+l.qty+'" '+(S.effective?'disabled':'')+' oninput="onQty(\''+l.id+'\',this)"></td>'
+        + '<td><input class="price" type="number" min="0" step="0.01" value="'+fmt(l.price)+'" '+(S.effective?'disabled':'')+' onchange="onPriceChange(\''+l.id+'\',this)" onkeydown="if(event.key===\'Enter\')this.blur()"></td>'
+        + '<td class="amt">'+fmt(l.qty*l.price)+'</td>'
+        + '<td>'+(S.effective?'':'<button class="rowdel" onclick="removeLine(\''+l.id+'\')">✕</button>')+'</td></tr>';
+    }).join('')
+    + '</tbody></table>';
+}
+function bTotals(){
+  const t=totals();
+  return '<div class="row"><span class="muted" id="sumCount">共 '+t.count+' 行</span><span class="muted">含税 · 整单优惠后净额</span></div>'
+    + '<div class="row big"><span>价税合计</span><span id="totalGross">¥'+fmt(t.payable)+'</span></div>'
+    + '<div class="row muted"><span>本单欠款（收款后）</span><span id="dueInline">'+(t.due>=0?'¥'+fmt(t.due):'预收 ¥'+fmt(-t.due))+'</span></div>';
+}
+function bStep3(){
+  const c=customer(), t=totals(), isQuote=S.type==='quote';
+  return '<div class="b-step-pane"><div class="b-paywrap">'
+    + (S.effective?'<div class="a-banner" style="margin:0 0 12px"><b>✓ '+S.docNo+'</b> 已生效，本页只读。<button onclick="openPrint()">补打</button><button onclick="newOrder()">开下一单</button></div>':'')
+    + '<div class="b-h">结算 · '+esc(c?c.name:'')+'</div><div class="b-sub">收款不是必填；差额就是挂账。赊账不是一种结算方式，它就是那个差额。</div>'
+    + '<div class="b-paycard">'
+      + '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">本单明细</div>'
+      + '<div style="max-height:240px;overflow:auto">'+bCart()+'</div>'
+      + '<div class="b-paygrid" style="margin-top:14px">'
+        + '<div class="b-field"><label>本次收款</label><div style="display:flex;gap:6px"><input id="payInput" type="number" min="0" step="0.01" value="'+fmt(S.payAmount)+'" '+(S.effective||isQuote?'disabled':'')+' oninput="onPayInput(this)"><button onclick="payFull()" '+(S.effective||isQuote?'disabled':'')+'>收全款</button></div></div>'
+        + '<div class="b-field"><label>收款方式</label><select id="payMethod" '+(S.effective||isQuote?'disabled':'')+' onchange="setPayMethod(this)">'+['微信','现金','支付宝','银行转账','其他'].map(m=>'<option '+(S.payMethod===m?'selected':'')+'>'+m+'</option>').join('')+'</select></div>'
+        + '<div class="b-field"><label>整单优惠</label><input type="number" min="0" step="0.01" value="'+fmt(S.discount)+'" '+(S.effective?'disabled':'')+' onchange="onDiscountChange(this)"></div>'
+        + '<div class="b-field"><label>备注</label><input value="'+esc(S.remark)+'" onchange="S.remark=this.value;markDirty()" placeholder="可不填"></div>'
+      + '</div>'
+      + '<div class="b-summary"><div class="r"><span id="sumCount">共 '+t.count+' 行</span><b id="totalGross">¥'+fmt(t.payable)+'</b></div>'
+        + '<div class="r"><span>本次收款</span><b id="totalPay">¥'+fmt(t.pay)+'</b></div>'
+        + '<div class="r"><span>本单欠款 <span class="muted" id="payHint"></span></span><b id="dueInline">'+(t.due>=0?'¥'+fmt(t.due):'预收 ¥'+fmt(-t.due))+'</b></div>'
+        + '<div class="r"><span>客户累计应收（生效后）</span><b id="recvAfter">¥'+fmt((c?c.receivable:0)+t.due)+'</b></div></div>'
+      + '<div style="display:flex;gap:8px;margin-top:14px"><button onclick="goStepB(2)">← 改明细</button>'
+        + (S.effective?'<button class="primary" style="flex:1;padding:10px" onclick="openPrint()">补打</button>':'<button class="primary" style="flex:1;padding:10px" onclick="makeEffective()">'+(isQuote?'保存报价单':'生效并打印')+'</button>')
+        + '</div>'
+      + '<div class="sub" style="text-align:right;margin-top:6px">演示任务 '+taskCount()+'/8</div>'
+    + '</div>'
+  + '</div></div>';
+}
+function goStepB(n){
+  if(n===2 && !S.customerId){ toast('先选客户','warn'); return; }
+  if(n===3 && !S.lines.length){ toast('先加至少一行','warn'); return; }
+  S.stepB=n; render();
+  if(n===2) setTimeout(focusSearch,20);
+  if(n===3) setTimeout(function(){ const p=document.getElementById('payInput'); if(p){ p.focus(); p.select(); } },20);
+}
+
+/* ============================== C：向导 ============================== */
+function renderC(){
+  const step=S.stepC;
+  return '<div class="c-app"><div class="c-wrap">'
+    + '<div class="c-steps">'+[[1,'选客户'],[2,'选商品'],[3,'收款'],[4,'核对并打印']].map(function(x){ const n=x[0], l=x[1]; return '<div class="c-step '+(step===n?'on':'')+' '+(step>n?'done':'')+'"><i>'+(step>n?'✓':n)+'</i>'+l+'</div>'; }).join('')+'</div>'
+    + '<div class="c-card">'+cStepContent(step)+'</div>'
+    + '<div class="c-nav">'
+      + '<button '+(step===1?'disabled':'')+' onclick="goStepC('+(step-1)+')">← 上一步</button>'
+      + '<span class="sub" style="align-self:center">'+fmtMs(elapsedMs())+' · '+S.keys+' 键 · 演示任务 '+taskCount()+'/8</span>'
+      + (step<4 ? '<button class="primary" onclick="goStepC('+(step+1)+')">下一步 →</button>' : (S.effective?'<button class="primary" onclick="openPrint()">补打</button>':'<button class="primary" onclick="makeEffective()">生效并打印</button>'))
+    + '</div></div></div>';
+}
+function cStepContent(step){
+  if(step===1) return cStep1();
+  if(step===2) return cStep2();
+  if(step===3) return cStep3();
+  return cStep4();
+}
+function cStep1(){
+  const recent=['c_wang','c_li','c_chen'].map(id=>CUSTOMERS.find(c=>c.id===id)).filter(Boolean);
+  return '<h2>这单卖给谁？</h2><div class="c-lead">第 1 步只做一件事：选客户。散客就是零售价表上的一个档案。</div>'
+    + '<div class="c-search"><input id="ccustSearch" autocomplete="off" placeholder="输入客户名或首字母，如 wsf" oninput="onCCustSearch(this.value)"></div>'
+    + '<div class="c-recent">'+recent.map(c=>'<button class="c-ccard" onclick="chooseCustomer(\''+c.id+'\')"><b>'+esc(c.name)+'</b><span>应收 ¥'+fmt(c.receivable)+'</span></button>').join('')+'</div>'
+    + '<div class="c-cart"><table><thead><tr><th>客户</th><th>首字母</th><th style="text-align:right">应收</th></tr></thead><tbody id="ccustRows">'+cCustRows('')+'</tbody></table></div>';
+}
+function cCustRows(q){
+  return searchCustomers(q).map(c=>'<tr onclick="chooseCustomer(\''+c.id+'\')" style="cursor:pointer"><td><b>'+esc(c.name)+'</b></td><td class="sub">'+esc(c.py)+'</td><td style="text-align:right;font-family:var(--mono)">¥'+fmt(c.receivable)+'</td></tr>').join('');
+}
+function onCCustSearch(q){ const el=document.getElementById('ccustRows'); if(el) el.innerHTML=cCustRows(q); }
+function cStep2(){
+  return '<h2>加商品</h2><div class="c-lead">第 2 步：搜、加、改数量。一次只服务一行，慢但不容易错。</div>'
+    + '<div class="c-search"><input id="cprodSearch" autocomplete="off" placeholder="搜编码 / 名称 / 规格（空格分词）" value="'+esc(S.search||'')+'" oninput="onCProdSearch(this.value)"></div>'
+    + '<div class="c-results" id="cResults">'+cResultRows(S.search||'')+'</div>'
+    + '<div class="c-cart">'+cCart()+'</div>'
+    + '<div class="c-tot"><span class="lbl">价税合计</span><span class="v" id="totalGross">¥'+fmt(totals().payable)+'</span></div>';
+}
+function cResultRows(q){
+  const c=customer();
+  let list = q ? searchProducts(q,c) : (c&&c.recent&&c.recent.length ? c.recent.map(product).filter(Boolean) : PRODUCTS.slice(0,8));
+  if(!list.length) return '<div class="b-empty">没搜到。换个词。</div>';
+  return list.slice(0,8).map(p=>{
+    const rp=resolvePrice(p,c), lp=lastPrice(p,c);
+    return '<div class="c-prow" onclick="addProduct(\''+p.id+'\')"><div class="pmain"><div><span class="pn">'+esc(p.name)+'</span> <span class="spec">'+esc(p.spec)+'</span></div>'
+      + '<div class="meta">'+esc(p.code)+' · 库存 '+p.stock+' '+esc(p.unit)+(lp?' · 上次 ¥'+fmt(lp):'')+'</div></div>'
+      + '<div class="pp">¥'+fmt(rp)+'</div></div>';
+  }).join('');
+}
+function onCProdSearch(q){ S.search=q; const el=document.getElementById('cResults'); if(el) el.innerHTML=cResultRows(q); }
+function cCart(){
+  if(!S.lines.length) return '<div class="b-empty">还没有商品。上面搜一个，点行加入。</div>';
+  return '<table><thead><tr><th>商品</th><th style="text-align:right">数量</th><th style="text-align:right">单价</th><th style="text-align:right">金额</th><th></th></tr></thead><tbody>'
+    + S.lines.map(l=>{
+      const p=product(l.pid);
+      return '<tr><td><div class="nm">'+esc(p.name)+'</div><div class="sp">'+esc(p.spec)+' · '+esc(l.unit)+(l.override?' · 已改价':'')+'</div></td>'
+        + '<td><input class="qty" data-lid="'+l.id+'" type="number" min="0" value="'+l.qty+'" '+(S.effective?'disabled':'')+' oninput="onQty(\''+l.id+'\',this)"></td>'
+        + '<td><input class="price" type="number" min="0" step="0.01" value="'+fmt(l.price)+'" '+(S.effective?'disabled':'')+' onchange="onPriceChange(\''+l.id+'\',this)" onkeydown="if(event.key===\'Enter\')this.blur()"></td>'
+        + '<td class="amt">'+fmt(l.qty*l.price)+'</td><td>'+(S.effective?'':'<button class="rowdel" onclick="removeLine(\''+l.id+'\')">✕</button>')+'</td></tr>';
+    }).join('')+'</tbody></table>';
+}
+function cStep3(){
+  const c=customer(), t=totals(), isQuote=S.type==='quote';
+  return '<h2>收款</h2><div class="c-lead">第 3 步：收款不是必填；差额就是挂账。收款方式只影响资金账，不影响应收。</div>'
+    + '<div class="c-fields">'
+      + '<div><label>本次收款</label><input id="payInput" type="number" min="0" step="0.01" value="'+fmt(S.payAmount)+'" '+(S.effective||isQuote?'disabled':'')+' oninput="onPayInput(this)"></div>'
+      + '<div><label>收款方式</label><select id="payMethod" '+(S.effective||isQuote?'disabled':'')+' onchange="setPayMethod(this)">'+['微信','现金','支付宝','银行转账','其他'].map(m=>'<option '+(S.payMethod===m?'selected':'')+'>'+m+'</option>').join('')+'</select></div>'
+      + '<div><label>整单优惠（含让价/抹零）</label><input type="number" min="0" step="0.01" value="'+fmt(S.discount)+'" '+(S.effective?'disabled':'')+' onchange="onDiscountChange(this)"></div>'
+      + '<div><label>备注</label><input value="'+esc(S.remark)+'" onchange="S.remark=this.value;markDirty()" placeholder="可不填"></div>'
+    + '</div>'
+    + '<div class="c-summary" style="margin-top:14px"><div class="r"><span id="sumCount">共 '+t.count+' 行</span><span id="totalGross">¥'+fmt(t.payable)+'</span></div>'
+      + '<div class="r big"><span>本次收款 <span class="sub" id="payHint"></span></span><span id="totalPay">¥'+fmt(t.pay)+'</span></div>'
+      + '<div class="r"><span>本单欠款</span><b id="dueInline">'+(t.due>=0?'¥'+fmt(t.due):'预收 ¥'+fmt(-t.due))+'</b></div>'
+      + '<div class="r"><span>客户累计应收（生效后）</span><span id="recvAfter">¥'+fmt((c?c.receivable:0)+t.due)+'</span></div></div>'
+    + '<p class="sub" style="margin-top:10px">收款方式与金额不是两个必填字段：不让收现金的人先选「现金」再输金额。</p>';
+}
+function cStep4(){
+  const c=customer(), t=totals(), isQuote=S.type==='quote';
+  return '<h2>核对并打印</h2><div class="c-lead">第 4 步：只核对，不再编辑。生效即出纸；补打入口与打印同一位置。</div>'
+    + (S.effective?'<div class="a-banner" style="margin:0 0 12px"><b>✓ '+S.docNo+'</b> 已生效，本页只读。<button onclick="openPrint()">补打</button><button onclick="newOrder()">开下一单</button></div>':'')
+    + '<div class="c-summary">'
+      + '<div class="r"><span>客户</span><b>'+esc(c?c.name:'—')+'</b></div>'
+      + '<div class="r"><span>业务日期 / 单据类型</span><span>'+S.bizDate+' · '+(isQuote?'报价单':'销售单')+'</span></div>'
+      + '<div class="r"><span id="sumCount">共 '+t.count+' 行</span><span>价税合计 <b id="totalGross">¥'+fmt(t.payable)+'</b></span></div>'
+      + '<div class="r"><span>整单优惠</span><span id="totalDisc">¥'+fmt(t.discount)+'</span></div>'
+      + '<div class="r"><span>本次收款（'+esc(S.payMethod)+'）</span><span id="totalPay">¥'+fmt(t.pay)+'</span></div>'
+      + '<div class="r big"><span>本单欠款</span><span id="dueInline">'+(t.due>=0?'¥'+fmt(t.due):'预收 ¥'+fmt(-t.due))+'</span></div>'
+      + '<div class="r"><span>客户累计应收（生效后）</span><span id="recvAfter">¥'+fmt((c?c.receivable:0)+t.due)+'</span></div>'
+    + '</div>'
+    + '<div class="c-cart" style="margin-top:14px">'+cCart()+'</div>'
+    + '<p class="sub" style="margin-top:10px">'+(S.effective?'本单已生效；要改只能走版本链，不覆盖历史。':'点右下角「生效并打印」；草稿不占号，也没影响库存。')+'</p>';
+}
+function goStepC(n){
+  if(n<1||n>4) return;
+  if(n>=2 && !S.customerId){ toast('先选客户','warn'); return; }
+  if(n>=3 && !S.lines.length){ toast('先加至少一行','warn'); return; }
+  S.stepC=n; render();
+  if(n===2) setTimeout(focusSearch,20);
+  if(n===3) setTimeout(function(){ const p=document.getElementById('payInput'); if(p){ p.focus(); p.select(); } },20);
+}
+
+/* ============================== D：手机 ============================== */
+function renderD(){
+  const c=customer(), t=totals(), isQuote=S.type==='quote';
+  return '<div class="d-stage"><div class="d-phone">'
+    + '<div class="d-status"><span>9:41</span><span>五金水暖 · 开单</span><span>▮▮▮</span></div>'
+    + '<div class="d-head"><b>'+(isQuote?'报价单':'销售单')+'</b><span class="sub">草稿 · 不占号</span><span class="spacer"></span><button onclick="setType(\''+(isQuote?'sales':'quote')+'\')">'+(isQuote?'转销售':'报价')+'</button></div>'
+    + '<div class="d-cust" onclick="openDCust()"><span>'+(c?esc(c.name):'选择客户')+'</span><span class="r">'+(c?'应收 ¥'+fmt(c.receivable):'必填 · 散客也可')+' ▾</span></div>'
+    + '<div class="d-search"><input id="dprodSearch" autocomplete="off" placeholder="搜商品 / 规格 / 编码" value="'+esc(S.search||'')+'" oninput="onDProdSearch(this.value)" onclick="onDProdSearch(this.value)"></div>'
+    + '<div class="d-results" id="dResults">'+dResults(S.search||'')+'</div>'
+    + '<div class="d-lines">'+dLines()+'</div>'
+    + '<div class="d-sticky"><div><div class="t">'+(S.lines.length?S.lines.length+' 行 · 价税合计':'未加商品')+'</div><div class="v" id="dTotal">¥'+fmt(t.payable)+'</div></div>'
+      + (S.effective?'<button class="primary" onclick="openPrint()">补打</button>':'<button class="primary" onclick="openDPay()">收款 / 生效</button>')
+    + '</div>'
+    + (S.dCustOpen?dCustSheet():'')
+    + (S.dPayOpen?dPaySheet():'')
+  + '</div></div>';
+}
+function dResults(q){
+  const c=customer();
+  if(!S.dSearchOpen && !q) return '';
+  let list = q ? searchProducts(q,c) : (c&&c.recent&&c.recent.length ? c.recent.map(product).filter(Boolean) : PRODUCTS.slice(0,5));
+  if(!list.length) return '<div class="d-empty">没搜到</div>';
+  return list.slice(0,5).map(p=>'<div class="d-rrow" onclick="addProduct(\''+p.id+'\')"><div class="m"><div class="n">'+esc(p.name)+'</div><div class="s">'+esc(p.spec)+' · 库存 '+p.stock+' '+esc(p.unit)+'</div></div><div class="p">¥'+fmt(resolvePrice(p,c))+'</div></div>').join('');
+}
+function onDProdSearch(q){ S.search=q; S.dSearchOpen=true; const el=document.getElementById('dResults'); if(el) el.innerHTML=dResults(q); }
+function dLines(){
+  if(!S.lines.length) return '<div class="d-empty">搜商品加行。<br>手机竖屏一屏能放 6 行；代价在输入——每行要切搜索、点结果、改数量。</div>';
+  return S.lines.map(l=>{
+    const p=product(l.pid);
+    return '<div class="d-line"><div><div class="n">'+esc(p.name)+'</div><div class="s">'+esc(p.spec)+' · '+esc(l.unit)+(l.override?' · 改价':'')+'</div></div>'
+      + '<input class="qty" data-lid="'+l.id+'" type="number" min="0" value="'+l.qty+'" '+(S.effective?'disabled':'')+' oninput="onQty(\''+l.id+'\',this)">'
+      + '<input class="price" type="number" min="0" step="0.01" value="'+fmt(l.price)+'" '+(S.effective?'disabled':'')+' onchange="onPriceChange(\''+l.id+'\',this)" onkeydown="if(event.key===\'Enter\')this.blur()">'
+      + '<div class="amt">'+fmt(l.qty*l.price)+'</div></div>';
+  }).join('');
+}
+function openDCust(){ S.dCustOpen=true; render(); }
+function closeDCust(){ S.dCustOpen=false; render(); }
+function dCustSheet(){
+  return '<div class="d-sheet" onclick="if(event.target===this)closeDCust()"><div class="card"><button class="close" onclick="closeDCust()">✕</button><h3>选择客户</h3>'
+    + '<input id="dcustSearch" placeholder="姓名 / 首字母" oninput="onDCustSearch(this.value)" style="width:100%;padding:8px">'
+    + '<div id="dcustList" style="margin-top:6px">'+CUSTOMERS.slice(0,8).map(c=>'<div class="d-crow" onclick="chooseCustomer(\''+c.id+'\')"><b>'+esc(c.name)+'</b><span class="sub">应收 ¥'+fmt(c.receivable)+'</span></div>').join('')+'</div></div></div>';
+}
+function onDCustSearch(q){
+  const list=document.getElementById('dcustList'); if(!list) return;
+  list.innerHTML=searchCustomers(q).map(c=>'<div class="d-crow" onclick="chooseCustomer(\''+c.id+'\')"><b>'+esc(c.name)+'</b><span class="sub">应收 ¥'+fmt(c.receivable)+'</span></div>').join('');
+}
+function openDPay(){ S.dPayOpen=true; render(); }
+function closeDPay(){ S.dPayOpen=false; render(); }
+function dPaySheet(){
+  const t=totals();
+  return '<div class="d-sheet" onclick="if(event.target===this)closeDPay()"><div class="card"><button class="close" onclick="closeDPay()">✕</button><h3>收款 / 生效</h3>'
+    + '<div class="sub">价税合计 ¥'+fmt(t.payable)+' · '+(S.lines.length+' 行')+' · 客户 '+esc(customer()?customer().name:'—')+'</div>'
+    + '<div class="d-field"><label>本次收款（留 0 = 整单挂账）</label><input id="payInput" type="number" min="0" value="'+fmt(S.payAmount)+'" oninput="onPayInput(this)"></div>'
+    + '<div class="d-field"><label>方式</label><div class="d-chips">'+['微信','现金','支付宝','银行转账'].map(m=>'<button class="'+(S.payMethod===m?'on':'')+'" onclick="setPayMethodValue(\''+m+'\')">'+m+'</button>').join('')+'</div></div>'
+    + '<div class="d-field"><label>整单优惠</label><input type="number" min="0" value="'+fmt(S.discount)+'" oninput="onDiscountChange(this)"></div>'
+    + '<div class="sub" style="margin-top:8px">本单欠款 <b id="dueInline">'+(t.due>=0?'¥'+fmt(t.due):'预收 ¥'+fmt(-t.due))+'</b></div>'
+    + '<button class="primary d-bigbtn" onclick="makeEffective()">收 ¥'+fmt(S.payAmount)+' 并生效</button>'
+  + '</div></div>';
+}
+function setPayMethodValue(m){ S.payMethod=m; render(); }
+
+/* ============================== 自测（?selftest=1） ============================== */
+function runSelfTest(){
+  const log=[];
+  function mouse(el,type){ if(!el){ log.push('missing element'); return false; } el.dispatchEvent(new MouseEvent(type,{bubbles:true})); return true; }
+  try{
+    const ci=document.getElementById('custInput');
+    if(ci){ ci.value='王'; ci.dispatchEvent(new Event('input',{bubbles:true})); const cr=document.querySelector('#custList .dd-row'); if(cr) mouse(cr,'mousedown'); else log.push('no customer row'); }
+    const steps=[['PPR-20-28',10],['PPR-20-90',20],['SLD',5],['TQ-20',2],['RG-50',4],['BLJ-ZX',3]];
+    for(const pair of steps){
+      const q=pair[0], qty=pair[1];
+      const si=document.getElementById('prodSearch'); if(!si){ log.push('no prodSearch'); break; }
+      si.value=q; si.dispatchEvent(new Event('input',{bubbles:true}));
+      const pr=document.querySelector('#prodList .prodrow'); if(!pr){ log.push('no result '+q); continue; }
+      mouse(pr,'mousedown');
+      const qs=document.querySelectorAll('.qty'); const qEl=qs[qs.length-1];
+      if(qEl){ qEl.value=String(qty); qEl.dispatchEvent(new Event('input',{bubbles:true})); }
+      if(q==='TQ-20'){
+        const ps=document.querySelectorAll('.price'); const pEl=ps[ps.length-1];
+        if(pEl){ pEl.value='28'; pEl.dispatchEvent(new Event('change',{bubbles:true})); }
+        const ok=document.querySelector('#modal .mfoot .primary'); if(ok) ok.click(); else log.push('no price modal');
+      }
+    }
+    const pay=document.getElementById('payInput'); if(pay){ pay.value='300'; pay.dispatchEvent(new Event('input',{bubbles:true})); }
+    const eff=Array.from(document.querySelectorAll('button')).filter(function(b){ return b.textContent.indexOf('生效并打印')>=0; })[0];
+    if(eff) eff.click(); else log.push('no effective button');
+    setTimeout(function(){
+      const pr=document.querySelector('#modal .mfoot .primary'); if(pr) pr.click(); else log.push('no print modal');
+      const out={log:log, lines:S.lines.map(function(l){ return {pid:l.pid,qty:l.qty,price:l.price,override:l.override}; }), task:taskCount(), doc:S.docNo, effective:S.effective, printed:S.printed, keys:S.keys, elapsed:fmtMs(elapsedMs()), total:totals()};
+      const pre=document.createElement('pre'); pre.id='selftest'; pre.textContent=JSON.stringify(out,null,2); document.body.appendChild(pre);
+    },400);
+  }catch(e){ log.push('ERR '+e.message+' | '+(e.stack||'')); }
+}
+function runVariantTest(v){
+  try{
+    setVariant(v);
+    S.customerId = null; S.lines = []; S.effective = false; S.docNo = ''; S.printed = 0; S.payAmount = 0;
+    S.stepB = 1; S.stepC = 1; S.dCustOpen = false; S.dPayOpen = false; S.dSearchOpen = false; S.search = '';
+    render();
+    chooseCustomer('c_wang');
+    addProduct('p_ppr20_28');
+    if(v==='B') goStepB(3);
+    if(v==='C'){ goStepC(3); goStepC(4); }
+    if(v==='D') openDPay();
+    const hasPay = !!document.getElementById('payInput');
+    const pay = document.getElementById('payInput'); if(pay){ pay.value='300'; pay.dispatchEvent(new Event('input',{bubbles:true})); }
+    const eff = Array.from(document.querySelectorAll('button')).filter(function(b){ return b.textContent.indexOf('并生效')>=0 || b.textContent.indexOf('生效并打印')>=0; })[0];
+    if(eff) eff.click();
+    setTimeout(function(){
+      const h = document.querySelector('#modal h3');
+      if(h && h.textContent.indexOf('收款多于应收')>=0){ const ok=document.querySelector('#modal .mfoot .primary'); if(ok) ok.click(); }
+    },120);
+    setTimeout(function(){
+      const out = {v:v, lines:S.lines.length, task:taskCount(), effective:S.effective, doc:S.docNo, printed:S.printed, hasPay:hasPay, html:document.getElementById('app').innerHTML.length, fatal:(document.getElementById('app').innerHTML.indexOf('fatal')>=0)};
+      const pre=document.createElement('pre'); pre.id='selftest'; pre.textContent=JSON.stringify(out); document.body.appendChild(pre);
+    },300);
+  }catch(e){
+    const pre=document.createElement('pre'); pre.id='selftest'; pre.textContent=JSON.stringify({v:v, err:e.message, stack:e.stack}); document.body.appendChild(pre);
+  }
+}
+
+
+/* ============================== 抽屉 ============================== */
+function toggleDrawer(){
+  const d = document.getElementById('drawer');
+  d.classList.toggle('open');
+  if(d.classList.contains('open')) renderDrawer();
+}
+function renderDrawer(){
+  const body = document.getElementById('drawerBody');
+  if(!body) return;
+  const n = taskCount();
+  const c = customer();
+  const t = totals();
+  const taskHtml = TASK_VISIBLE.map((x,i)=>{
+    const done = taskDone(x.id);
+    return '<li class="'+(done?'done':'')+'"><span class="t">'+esc(x.text)+'</span></li>';
+  }).join('');
+  body.innerHTML =
+    '<div class="statline"><span>耗时 <b id="drawerTimer">'+fmtMs(elapsedMs())+'</b></span><span>击键 <b id="drawerKeys">'+S.keys+'</b></span><span>完成 <b id="drawerTask">'+n+'/'+TASK_VISIBLE.length+'</b></span></div>'
+    + '<p class="sub">同样的 6 行单 + 一次改价 + 部分收款 + 打印，在四个变体里各做一遍。先点「重置演示」，再按下面顺序做。</p>'
+    + '<ol class="tasklist">'+taskHtml+'</ol>'
+    + '<div class="callout"><b>唯一硬指标</b>：30 单/天、1-3 人、一单 2-3 分钟（含打印）。这张原型把「耗时」和「击键」直接摆在屏幕上，比任何主观评价都硬。</div>'
+    + '<h4>四个变体比什么</h4>'
+    + '<table><tr><th>变体</th><th>结构</th><th>假设</th></tr>'
+    + '<tr><td><b>A</b> 一屏</td><td>表头+明细+合计+收款同屏</td><td>键盘流最快，鼠标只用于例外</td></tr>'
+    + '<tr><td><b>B</b> 两步</td><td>选客户 → 选货+结算</td><td>触屏/生手更稳，但每行多一次点击</td></tr>'
+    + '<tr><td><b>C</b> 向导</td><td>客户→商品→收款→打印 四步</td><td>最不容易错，最慢</td></tr>'
+    + '<tr><td><b>D</b> 手机</td><td>单列+底部结算</td><td>6 行能放下；每行多 3-4 次触摸，打印受限</td></tr></table>'
+    + '<h4>第一性原理（本版押的注）</h4>'
+    + '<ul>'
+      + '<li><b>时间预算</b>：150 秒 ÷ 6 行 ≈ 每行 15 秒（找货 + 改数 + 改价）。键盘每行 8-12 秒；鼠标点选每次 2-3 秒；多一屏 4-6 秒。</li>'
+      + '<li><b>五金货名 = 类别 + 规格 + 材质</b>，用户嘴里先说规格。所以规格词是一等检索维度，「编码精确」排在它前面只因为编码唯一。</li>'
+      + '<li><b>屏幕是稀缺的</b>：明细行可滚动；客户、合计、收款、搜索必须常驻，否则每次滚动都是一次找回上下文。</li>'
+      + '<li><b>打印是生效的副作用</b>，不是独立一步。生效即出纸，失败可补打；补打入口与打印入口同一位置。</li>'
+      + '<li><b>报价单不是另一张表</b>：同一编辑器切模式；转销售单时锁价，改价留痕。</li>'
+    + '</ul>'
+    + '<h4>外部依据（一手，2026-11-24 调研）</h4>'
+    + '<ul>'
+      + '<li><b>一屏是厂商主流</b>：金蝶云星辰官方把销售订单录入写成「基本信息框 = 表头、商品信息框 = 表体」，同页上下排列，下面还有合计区；不是分步也不是向导。</li>'
+      + '<li><b>键盘流有据可依</b>：星辰快捷键面板里有 Shift+Insert 插行、Ctrl+F6 表头↔表体、Ctrl+P 打印；云星空把「回车切下一格 / 无下一焦点自动增行」做成按用户参数。</li>'
+      + '<li><b>检索排序是自由裁量区</b>：核对的产品里没有一家官方写明「先命中编码还是名称、结果怎么排」；只有精斗云「一次最多 200 条」的截断。所以这张票要定死一条可实现的排序，并写进规格（建议 ADR）。</li>'
+      + '<li><b>手机能开单，但打印受限</b>：星辰未审核单在手机端不显示打印按钮、超次数要密码且须到电脑端；网上管家婆 APP 远程打印「暂时无法判断结果，需到 PC 端确认」；T+ 手机下单打印要一台装着网络打印插件的 PC。</li>'
+    + '</ul>'
+    + '<p class="sub">调研笔记：docs/research/2026-11-24-order-entry.md（research/order-entry-ux 分支，168 行，10 条官方未说明）。</p>'
+    + '<h4>本版故意没做的</h4>'
+    + '<ul><li>视觉与品牌、动效、响应式细节。</li><li>真实打印与纸张尺寸（只做纸面预览）。</li><li>后端、登录、权限过滤（看成本开关、让价清单仅示意）。</li><li>扫码：主数据票已定「不做扫码」。</li></ul>'
+    + '<h4>当前状态</h4>'
+    + '<p class="sub">客户：'+esc(c?c.name:'未选')+' · 行数：'+t.count+' · 合计：¥'+fmt(t.payable)+' · 收款：'+esc(S.payMethod)+' ¥'+fmt(t.pay)+' · 生效：'+(S.effective?'是 '+S.docNo:'否')+'</p>'
+    + '<p class="sub">原型文件：docs/prototypes/2026-11-24-order-entry.html · 票据 <a href="https://github.com/panx635/jxc/issues/15" target="_blank">#15</a></p>';
+}
+
+/* ============================== 变体切换 ============================== */
+function setVariant(v){
+  if(!VARIANTS[v]) return;
+  S.variant = v;
+  closeModal();
+  try{ history.replaceState(null,'','?variant='+v); }catch(e){}
+  render();
+}
+function cycleVariant(d){
+  const keys = Object.keys(VARIANTS);
+  const i = keys.indexOf(S.variant);
+  setVariant(keys[(i+d+keys.length)%keys.length]);
+}
+
+/* ============================== 全局事件 ============================== */
+document.addEventListener('keydown', function(e){
+  if(e.key==='ArrowLeft' || e.key==='ArrowRight'){
+    const t = e.target;
+    if(t && t.matches && t.matches('input,textarea,select,[contenteditable]')) return;
+    e.preventDefault(); cycleVariant(e.key==='ArrowLeft'?-1:1); return;
+  }
+  const inApp = e.target && e.target.closest && e.target.closest('#app');
+  if(!inApp) return;
+  if(!S.startedAt && !S.effective){ startTimer(); }
+  if(!S.effective){ S.keys += 1; updateTimer(); }
+  if(e.key==='F2'){ e.preventDefault(); focusSearch(); }
+  if(e.key==='F4'){ e.preventDefault(); const p=document.getElementById('payInput'); if(p){ p.focus(); p.select(); } else if(S.variant==='B'){ S.stepB=3; render(); } else if(S.variant==='C'){ S.stepC=3; render(); } else if(S.variant==='D'){ S.dPayOpen=true; render(); } }
+  if(e.key==='Enter' && (e.ctrlKey||e.metaKey)){ e.preventDefault(); makeEffective(); }
+}, true);
+document.addEventListener('mousedown', function(e){
+  if(e.target && e.target.closest && e.target.closest('#app')){ if(!S.startedAt && !S.effective) startTimer(); }
+  if(!e.target.closest || !e.target.closest('.combo') && !e.target.closest('.a-search') && !e.target.closest('.b-search') && !e.target.closest('.c-search')){
+    document.querySelectorAll('.dropdown').forEach(el=>{ if(el.id!=='custList' && el.id!=='prodList') el.style.display='none'; });
+  }
+});
+window.addEventListener('load', function(){
+  const params = new URLSearchParams(location.search);
+  const v = (params.get('variant')||'A').toUpperCase();
+  S.variant = VARIANTS[v] ? v : 'A';
+  if(params.get('demo')==='lines'){
+    const c = CUSTOMERS.find(x=>x.id==='c_wang');
+    S.customerId = 'c_wang';
+    const demo = [['p_ppr20_28',10],['p_elbow20',20],['p_tape',5],['p_valve20',2],['p_hose50',4],['p_glue',3]];
+    S.lines = demo.map(function(x,i){
+      const p = PRODUCTS.find(function(y){ return y.id===x[0]; });
+      return {id:'demo'+i, pid:p.id, qty:x[1], price:(p.id==='p_valve20'?28:resolvePrice(p,c)), override:(p.id==='p_valve20'), unit:p.unit, remark:''};
+    });
+    S.payAmount = 300;
+    if(S.variant==='B') S.stepB = 2;
+    if(S.variant==='C') S.stepC = 2;
+  }
+  render();
+  const st = params.get('selftest');
+  if(st==='1' || st==='A') setTimeout(runSelfTest, 500);
+  else if(st==='B' || st==='C' || st==='D') setTimeout(function(){ runVariantTest(st); }, 500);
+  if(!S.lines.length) setTimeout(focusSearch, 200);
+});
+</script>
+</body>
+</html>
