@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { query } from "@/server/db";
+import { findLoginUser, recordLogin } from "@jxc/access-control";
+import { accessStore } from "@/server/access-store";
 import { isSameOrigin, jsonError } from "@/server/http";
 import { verifyAgainstDummy, verifyPassword } from "@/server/password";
 import { createSession, SESSION_COOKIE, sessionCookieOptions } from "@/server/session";
@@ -7,13 +8,7 @@ import { createSession, SESSION_COOKIE, sessionCookieOptions } from "@/server/se
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type LoginRow = {
-  id: string;
-  password_hash: string;
-  is_active: boolean;
-};
-
-function text(value: unknown): string {
+function trimmedText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
@@ -33,29 +28,24 @@ export async function POST(request: Request) {
   }
 
   const body = payload as { username?: unknown; password?: unknown };
-  const username = text(body.username);
+  const username = trimmedText(body.username);
   const password = typeof body.password === "string" ? body.password : "";
   if (!username || !password) {
     return jsonError(400, "missing_credentials", "请输入用户名和密码。");
   }
 
-  const { rows } = await query<LoginRow>(
-    "select id::text as id, password_hash, is_active from app_user where username = $1",
-    [username],
-  );
-  const user = rows[0];
-
-  if (!user || !user.is_active) {
+  const user = await findLoginUser(accessStore, username);
+  if (!user || !user.isActive) {
     await verifyAgainstDummy(password);
     return jsonError(401, "invalid_credentials", "用户名或密码不正确。");
   }
 
-  if (!(await verifyPassword(user.password_hash, password))) {
+  if (!(await verifyPassword(user.passwordHash, password))) {
     return jsonError(401, "invalid_credentials", "用户名或密码不正确。");
   }
 
   const session = await createSession(user.id);
-  await query("update app_user set last_login_at = now() where id = $1", [user.id]);
+  await recordLogin(accessStore, user.id);
 
   const response = NextResponse.json({ ok: true });
   response.cookies.set(SESSION_COOKIE, session.token, sessionCookieOptions(session.expiresAt));

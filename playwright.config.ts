@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { testDatabaseUrl } from "./tests/support/test-database";
 
 const port = process.env.E2E_PORT ?? "3100";
 const baseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${port}`;
@@ -24,6 +25,6 @@ export default defineConfig({
     url: `${baseURL}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
-    env: { ...serverEnv, PORT: port, JXC_INSECURE_COOKIES: "1" },
+    env: { ...serverEnv, DATABASE_URL: testDatabaseUrl, PORT: port, JXC_INSECURE_COOKIES: "1" },
   },
 });

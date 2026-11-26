@@ -48,30 +48,18 @@ export function databaseName(connectionString) {
   return parseDatabaseUrl(connectionString).database;
 }
 
-export function tailFile(file, maxLines = 40) {
-  try {
-    if (!existsSync(file)) return "";
-    return readFileSync(file, "utf8").trim().split(/\r?\n/).slice(-maxLines).join("\n");
-  } catch {
-    return "";
-  }
-}
-
 export async function resolveDatabaseUrl({ bootstrapLocal = false } = {}) {
   loadEnvFiles();
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
 
-  const dataDir = path.join(repoRoot, ".local", "pgdata");
-  const initialized = existsSync(path.join(dataDir, "PG_VERSION"));
-  if (initialized || bootstrapLocal) {
+  if (bootstrapLocal) {
     const { ensureLocalCluster } = await import("./local-pg.mjs");
     await ensureLocalCluster();
     return LOCAL_DATABASE_URL;
   }
 
   throw new Error([
-    "缺少 DATABASE_URL。请选择一种方式：",
-    "  1. 复制 .env.example 为 .env.local，填入可用的 PostgreSQL 连接串；",
-    "  2. 或直接运行 `pnpm dev`：本机检测到 PostgreSQL 安装时会自动初始化 .local/pgdata 并启动本地集群。",
+    "缺少 DATABASE_URL。生产 / 测试服务器必须显式配置；本地开发可以运行 `pnpm dev`，",
+    "它会在本机初始化 .local/pgdata 并代你导出连接串。",
   ].join("\n"));
 }

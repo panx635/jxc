@@ -1,0 +1,36 @@
+name: jxc
+
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/jxc
+      SEED_ADMIN_USERNAME: admin
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-admin12345}
+      SEED_ADMIN_DISPLAY_NAME: "管理员"
+      SEED_SHOP_NAME: "五金水暖"
+      # 本地 compose 走 http；生产 HTTPS 下删掉这一行，让 Cookie 带 Secure。
+      JXC_INSECURE_COOKIES: "1"
+    ports:
+      - "3000:3000"
+
+volumes:
+  db-data:

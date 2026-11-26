@@ -59,10 +59,16 @@ export async function migrateUp(connectionString, { steps = Infinity } = {}) {
   const appliedNow = [];
 
   await withClient(connectionString, async (client) => {
-    await client.query(CREATE_LEDGER);
     await client.query("select pg_advisory_lock($1)", [LOCK_KEY]);
     try {
+      await client.query(CREATE_LEDGER);
       const applied = new Map((await readApplied(client)).map((row) => [row.version, row.checksum]));
+      const knownVersions = new Set(migrations.map((migration) => migration.version));
+      for (const version of applied.keys()) {
+        if (!knownVersions.has(version)) {
+          throw new Error(`已应用迁移 ${version} 的 up 文件已不存在。`);
+        }
+      }
       for (const migration of migrations) {
         if (applied.has(migration.version)) {
           if (applied.get(migration.version) !== migration.checksum) {
@@ -100,9 +106,9 @@ export async function migrateDown(connectionString, { steps = 1, all = false } =
   const rolledBack = [];
 
   await withClient(connectionString, async (client) => {
-    await client.query(CREATE_LEDGER);
     await client.query("select pg_advisory_lock($1)", [LOCK_KEY]);
     try {
+      await client.query(CREATE_LEDGER);
       const applied = await readApplied(client);
       const targets = (all ? applied : applied.slice(-steps)).reverse();
 
@@ -160,6 +166,9 @@ if (isMain) {
       }
     }
 
+    if (steps !== Number.POSITIVE_INFINITY && (!Number.isInteger(steps) || steps < 0)) {
+      throw new Error("--steps 必须是非负整数。");
+    }
     const connectionString = await resolveDatabaseUrl({ bootstrapLocal: true });
     if (command === "up") {
       await migrateUp(connectionString, { steps });

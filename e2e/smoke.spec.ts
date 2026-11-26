@@ -1,8 +1,7 @@
 import { expect, test } from "@playwright/test";
+import { seedAdmin } from "../tests/support/test-database";
 
-const username = process.env.SEED_ADMIN_USERNAME ?? "admin";
-const password = process.env.SEED_ADMIN_PASSWORD ?? "admin12345";
-const displayName = process.env.SEED_ADMIN_DISPLAY_NAME ?? "管理员";
+const { username, password, displayName } = seedAdmin;
 
 test("管理员登录后进入空首页", async ({ page }) => {
   await page.goto("/");

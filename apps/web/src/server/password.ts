@@ -1,5 +1,6 @@
 import { hash, verify } from "@node-rs/argon2";
 
+// 参数与 scripts/lib/passwords.mjs 保持一致；改一处必须改另一处。
 const ARGON2_OPTIONS = {
   // Algorithm.Argon2id（@node-rs/argon2 在 isolatedModules 下不能引 const enum）
   algorithm: 2,
@@ -23,8 +24,7 @@ export async function verifyPassword(passwordHash: string, password: string): Pr
 let dummyHash: Promise<string> | undefined;
 
 /** 用户不存在时也做一次等价耗时的校验，避免按响应时间枚举账号。 */
-export async function verifyAgainstDummy(password: string): Promise<false> {
+export async function verifyAgainstDummy(password: string): Promise<void> {
   dummyHash ??= hashPassword("jxc-dummy-password-not-a-real-account");
   await verifyPassword(await dummyHash, password);
-  return false;
 }

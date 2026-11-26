@@ -1,10 +1,33 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { testSetupEnv } from "./test-database";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const baseUrl = process.env.JXC_BASE_URL || "http://127.0.0.1:3101";
+
+function newestMtime(target: string): number {
+  const stat = statSync(target);
+  if (!stat.isDirectory()) return stat.mtimeMs;
+  return readdirSync(target).reduce((newest, entry) => {
+    if (entry === "node_modules" || entry === ".next") return newest;
+    return Math.max(newest, newestMtime(path.join(target, entry)));
+  }, stat.mtimeMs);
+}
+
+function needsBuild(webRoot: string): boolean {
+  const buildId = path.join(webRoot, ".next", "BUILD_ID");
+  if (!existsSync(buildId)) return true;
+  const builtAt = statSync(buildId).mtimeMs;
+  return [
+    path.join(webRoot, "src"),
+    path.join(webRoot, "next.config.ts"),
+    path.join(webRoot, "tsconfig.json"),
+    path.join(repoRoot, "packages"),
+    path.join(repoRoot, "pnpm-lock.yaml"),
+  ].some((target) => newestMtime(target) > builtAt);
+}
 
 async function isHealthy(): Promise<boolean> {
   try {
@@ -44,9 +67,12 @@ async function stop(child: ChildProcess): Promise<void> {
 export default async function setup() {
   if (await isHealthy()) return;
 
-  run(process.execPath, ["scripts/db/setup.mjs"]);
+  if (!process.env.JXC_TEST_DATABASE_URL && !process.env.CI) {
+    run(process.execPath, ["scripts/db/local-pg.mjs", "start"]);
+  }
+  run(process.execPath, ["scripts/db/setup.mjs"], { env: testSetupEnv() });
   const webRoot = path.join(repoRoot, "apps", "web");
-  if (!existsSync(path.join(webRoot, ".next", "BUILD_ID"))) {
+  if (needsBuild(webRoot)) {
     const nextBinary = path.join(webRoot, "node_modules", "next", "dist", "bin", "next");
     run(process.execPath, [nextBinary, "build"], { cwd: webRoot });
   }
@@ -54,7 +80,7 @@ export default async function setup() {
   let output = "";
   const child = spawn(process.execPath, ["scripts/server.mjs"], {
     cwd: repoRoot,
-    env: { ...process.env, PORT: "3101", JXC_INSECURE_COOKIES: "1" },
+    env: { ...testSetupEnv(), PORT: "3101", JXC_INSECURE_COOKIES: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stdout?.on("data", (chunk: Buffer) => {

@@ -48,7 +48,9 @@ export async function createSession(userId: string): Promise<{ token: string; ex
 }
 
 export async function revokeSession(token: string): Promise<void> {
-  await query("delete from user_session where token_hash = $1", [hashToken(token)]);
+  await query("update user_session set revoked_at = now() where token_hash = $1 and revoked_at is null", [
+    hashToken(token),
+  ]);
 }
 
 export async function getSessionToken(): Promise<string | undefined> {

@@ -1,4 +1,5 @@
-import { query } from "@/server/db";
+import { getShopName } from "@jxc/access-control";
+import { accessStore } from "@/server/access-store";
 import { requireUser } from "@/server/require-user";
 import { LogoutButton } from "./logout-button";
 
@@ -6,8 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const user = await requireUser();
-  const { rows } = await query<{ name: string }>("select name from shop_profile where id = 1");
-  const shopName = rows[0]?.name ?? "进销存";
+  const shopName = (await getShopName(accessStore)) ?? "进销存";
 
   return (
     <div className="app-shell">

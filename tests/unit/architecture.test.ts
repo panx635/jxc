@@ -16,7 +16,7 @@ const DOMAIN_PACKAGES = {
   "cash-ledger": { name: "@jxc/cash-ledger", allowed: ["master-data", "document-core"] },
   "reporting": {
     name: "@jxc/reporting",
-    allowed: ["master-data", "document-core", "inventory-ledger", "party-ledger", "cash-ledger"],
+    allowed: ["inventory-ledger", "party-ledger", "cash-ledger"],
   },
   "printing": { name: "@jxc/printing", allowed: ["master-data", "document-core"] },
   "access-control": { name: "@jxc/access-control", allowed: [] },
@@ -37,7 +37,9 @@ function walk(directory: string): string[] {
 }
 
 function sourceFiles(directory: string): string[] {
-  return walk(directory).filter((file) => /\.(?:[cm]?[jt]sx?)$/.test(file));
+  return walk(directory)
+    .map((file) => file.split(path.sep).join("/"))
+    .filter((file) => /\.(?:[cm]?[jt]sx?)$/.test(file));
 }
 
 function importSpecifiers(source: string): string[] {
@@ -122,9 +124,17 @@ describe("HTTP 写边界", () => {
       })
       .flat();
 
-    for (const endpoint of routes) {
-      expect(manifest, `写端点 ${endpoint} 没登记`).toContain(endpoint);
-    }
+    const documented = new Set(
+      manifest
+        .split(/\r?\n/)
+        .map((line) => /^[-*] `([A-Z]+) (\S+)`/.exec(line))
+        .filter((match): match is RegExpExecArray => match !== null)
+        .map((match) => `${match[1]} ${match[2]}`),
+    );
+    expect(routes, "扫描没有找到已知写端点，写边界测试退化了").toEqual(
+      expect.arrayContaining(["POST /api/auth/login", "POST /api/auth/logout"]),
+    );
+    expect([...documented].sort(), "清单里登记了不存在的写端点").toEqual([...routes].sort());
   });
 
   it("全站不使用 Server Actions", () => {

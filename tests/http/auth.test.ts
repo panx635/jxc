@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { ApiClient } from "../support/api-client";
+import { seedAdmin } from "../support/test-database";
 
 const baseUrl = process.env.JXC_BASE_URL || "http://127.0.0.1:3101";
-const username = process.env.SEED_ADMIN_USERNAME ?? "admin";
-const password = process.env.SEED_ADMIN_PASSWORD ?? "admin12345";
-const displayName = process.env.SEED_ADMIN_DISPLAY_NAME ?? "管理员";
+const { username, password, displayName } = seedAdmin;
 
 describe("GET /api/health", () => {
   it("报告真实数据库可用", async () => {
