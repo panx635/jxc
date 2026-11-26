@@ -1,0 +1,34 @@
+{
+  "name": "@jxc/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "next typegen && tsc --noEmit"
+  },
+  "dependencies": {
+    "@jxc/master-data": "workspace:*",
+    "@jxc/document-core": "workspace:*",
+    "@jxc/inventory-ledger": "workspace:*",
+    "@jxc/party-ledger": "workspace:*",
+    "@jxc/cash-ledger": "workspace:*",
+    "@jxc/reporting": "workspace:*",
+    "@jxc/printing": "workspace:*",
+    "@jxc/access-control": "workspace:*",
+    "@jxc/opening-import": "workspace:*",
+    "@node-rs/argon2": "catalog:",
+    "next": "16.4.6",
+    "pg": "catalog:",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.11",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.3",
+    "@types/react-dom": "19.3.0",
+    "typescript": "catalog:"
+  }
+}

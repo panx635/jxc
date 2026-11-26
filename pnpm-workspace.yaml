@@ -1,0 +1,13 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+catalog:
+  "@node-rs/argon2": 2.2.2
+  pg: 8.23.1
+  typescript: 5.9.3
+
+minimumReleaseAgeExclude:
+  - "@types/node@26.6.11"
+  - "@types/react@19.3.3"
+  - vite@8.4.0

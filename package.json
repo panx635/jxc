@@ -1,0 +1,38 @@
+{
+  "name": "jxc",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "pnpm --filter @jxc/web build",
+    "start": "node scripts/server.mjs",
+    "typecheck": "pnpm -r --if-present typecheck && tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:http": "vitest run --project http",
+    "test:e2e": "node scripts/prepare-e2e.mjs && playwright test",
+    "db:setup": "node scripts/db/setup.mjs",
+    "db:migrate": "node scripts/db/migrate.mjs up",
+    "db:rollback": "node scripts/db/migrate.mjs down --all",
+    "db:status": "node scripts/db/migrate.mjs status",
+    "db:seed": "node scripts/db/seed.mjs",
+    "db:verify": "node scripts/db/verify.mjs",
+    "db:local:stop": "node scripts/db/local-pg.mjs stop"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "catalog:",
+    "pg": "catalog:"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@types/node": "26.6.11",
+    "typescript": "5.9.3",
+    "vite": "8.4.0",
+    "vitest": "5.1.2"
+  },
+  "type": "module"
+}
