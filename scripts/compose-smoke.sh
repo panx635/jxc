@@ -47,7 +47,9 @@ home() {
 }
 
 echo "== docker compose up --build =="
+docker compose version
 docker compose up --build -d
+docker compose ps
 
 echo "== health =="
 wait_healthy
@@ -75,5 +77,8 @@ MARKER="$(docker compose exec -T db psql -U postgres -d jxc -tAc "select marker 
 test "$MARKER" = "kept"
 ADMINS="$(docker compose exec -T db psql -U postgres -d jxc -tAc "select count(*) from app_user where role = 'admin'" | tr -d '[:space:]')"
 test "$ADMINS" = "1"
+
+echo "volume marker: $MARKER"
+echo "enabled admins: $ADMINS"
 
 echo "== compose smoke passed =="
