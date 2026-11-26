@@ -38,6 +38,16 @@ describe("部署配置", () => {
     expect(commands).toContain("pnpm test:e2e");
   });
 
+  it("compose 冒烟工作流可手动触发并执行脚本", () => {
+    const workflow = parse(read(".github/workflows/compose-verify.yml")) as {
+      on?: Record<string, unknown>;
+      jobs: Record<string, WorkflowJob>;
+    };
+    expect(workflow.on?.workflow_dispatch).toBeDefined();
+    const commands = (workflow.jobs.compose?.steps ?? []).map((step) => step.run ?? "").join("\n");
+    expect(commands).toContain("scripts/compose-smoke.sh");
+  });
+
   it("Docker 镜像启动时先迁移种子再起服务", () => {
     expect(read("Dockerfile")).toContain("node scripts/db/setup.mjs && node scripts/server.mjs");
   });

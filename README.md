@@ -86,3 +86,5 @@ docs/architecture/    写端点清单（新增写操作必须登记）
 ## CI
 
 `.github/workflows/ci.yml` 使用真实 `postgres:18` 服务容器，执行类型检查、迁移 / 回滚验证、构建、架构测试、HTTP 测试和 Playwright 冒烟；不 mock 存储。
+
+`.github/workflows/compose-verify.yml` 是手动触发的 compose 实跑：`docker compose up --build` → 健康检查 → 管理员登录 → 首页 → 写数据卷标记 → `docker compose down` 后重新 `up` → 标记与管理员仍在。

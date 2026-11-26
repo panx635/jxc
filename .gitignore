@@ -13,4 +13,5 @@ blob-report/
 .local/
 .scratch/
 *.log
+compose-smoke*.log
 *.tsbuildinfo
